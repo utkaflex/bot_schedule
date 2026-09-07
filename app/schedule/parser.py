@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from datetime import date, datetime, time
 from io import BytesIO
 from pathlib import Path
@@ -11,6 +12,8 @@ from openpyxl.cell.cell import MergedCell
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.schedule.models import Lesson, Schedule
+
+PARSER_VERSION = 2
 
 DATE_RE = re.compile(r"(?P<d>\d{1,2})\.(?P<m>\d{1,2})\.(?P<y>\d{4})")
 PAIR_RE = re.compile(
@@ -170,7 +173,7 @@ class ExcelScheduleParser:
         if not courses:
             raise ScheduleParseError("No course sheets with group headers found")
         unique = tuple(dict.fromkeys(lessons))
-        return Schedule(courses, unique)
+        return Schedule(courses, infer_lesson_types(unique))
 
     @staticmethod
     def _find_groups(sheet: Worksheet) -> tuple[int, dict[int, str]]:
@@ -184,3 +187,48 @@ class ExcelScheduleParser:
             if found:
                 return row, found
         raise ScheduleParseError(f"No group header found in sheet {sheet.title!r}")
+
+
+def infer_lesson_types(lessons: tuple[Lesson, ...]) -> tuple[Lesson, ...]:
+    """Infer missing types from how many groups share the exact same lesson."""
+    groups_by_lesson: dict[tuple[object, ...], set[str]] = {}
+    explicit_types: dict[tuple[object, ...], list[str]] = {}
+
+    def key(lesson: Lesson) -> tuple[object, ...]:
+        return (
+            lesson.date,
+            lesson.pair_number,
+            lesson.start_time,
+            lesson.end_time,
+            lesson.subject.casefold().strip(),
+            lesson.teacher,
+            lesson.location,
+            lesson.is_online,
+            lesson.url,
+            lesson.notes,
+        )
+
+    for lesson in lessons:
+        lesson_key = key(lesson)
+        groups_by_lesson.setdefault(lesson_key, set()).add(lesson.group)
+        if lesson.lesson_type:
+            types = explicit_types.setdefault(lesson_key, [])
+            if lesson.lesson_type not in types:
+                types.append(lesson.lesson_type)
+
+    inferred: list[Lesson] = []
+    for lesson in lessons:
+        if lesson.lesson_type:
+            inferred.append(lesson)
+            continue
+        lesson_key = key(lesson)
+        explicit = explicit_types.get(lesson_key)
+        lesson_type = (
+            " / ".join(explicit)
+            if explicit
+            else "лекция"
+            if len(groups_by_lesson[lesson_key]) > 1
+            else "семинар"
+        )
+        inferred.append(replace(lesson, lesson_type=lesson_type))
+    return tuple(inferred)

@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.notifications.service import NotificationService
 from app.schedule.models import merge_schedules
-from app.schedule.parser import ExcelScheduleParser
+from app.schedule.parser import PARSER_VERSION, ExcelScheduleParser
 from app.schedule.repository import ScheduleRepository
 from app.schedule.service import ScheduleService
 from app.sources.yandex_disk import YandexScheduleSource
@@ -36,6 +36,7 @@ class ScheduleUpdater:
             items = await self.source.current_and_next(today)
             contents = [await self.source.download(item) for item in items]
             digest = hashlib.sha256()
+            digest.update(f"parser:{PARSER_VERSION}\0".encode())
             for item, content in zip(items, contents, strict=True):
                 digest.update(item.name.encode())
                 digest.update(b"\0")

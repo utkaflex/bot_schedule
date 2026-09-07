@@ -14,13 +14,18 @@ from app.schedule.parser import (
 )
 
 
-def workbook_bytes(*, merged: bool = False) -> bytes:
+def workbook_bytes(*, merged: bool = False, lesson_text: str | None = None) -> bytes:
     book = Workbook()
     sheet = book.active
     sheet.title = "4 курс"
     sheet.append(["День", "Пара", "РИС-23-1", "РИС-23-2"])
     sheet.append(
-        ["Вторник\n01.09.2026", "3\n\n11:30-12:50", "Предмет\n\nИванов И.И. (115[2])", None]
+        [
+            "Вторник\n01.09.2026",
+            "3\n\n11:30-12:50",
+            lesson_text or "Предмет\n\nИванов И.И. (115[2])",
+            None,
+        ]
     )
     if merged:
         sheet.merge_cells("C2:D2")
@@ -95,11 +100,23 @@ def test_detects_groups_and_normal_cell():
     assert schedule.courses == {4: ("РИС-23-1", "РИС-23-2")}
     assert len(schedule.for_group("РИС-23-1")) == 1
     assert schedule.for_group("РИС-23-2") == ()
+    assert schedule.for_group("РИС-23-1")[0].lesson_type == "семинар"
 
 
 def test_merged_cell_applies_to_every_group():
     schedule = ExcelScheduleParser().parse(workbook_bytes(merged=True))
     assert [x.group for x in schedule.lessons] == ["РИС-23-1", "РИС-23-2"]
+    assert {x.lesson_type for x in schedule.lessons} == {"лекция"}
+
+
+def test_explicit_type_has_priority_over_group_count_inference():
+    schedule = ExcelScheduleParser().parse(
+        workbook_bytes(
+            merged=True,
+            lesson_text="Предмет (семинары)\n\nИванов И.И. (115[2])",
+        )
+    )
+    assert {x.lesson_type for x in schedule.lessons} == {"семинар"}
 
 
 def test_merged_value_uses_top_left():
