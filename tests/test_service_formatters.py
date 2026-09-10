@@ -1,6 +1,7 @@
+from dataclasses import replace
 from datetime import date, time
 
-from app.bot.formatters import format_schedule, split_messages
+from app.bot.formatters import format_lesson, format_schedule, split_messages
 from app.schedule.models import Lesson, Schedule, merge_schedules
 from app.schedule.service import ScheduleService
 
@@ -34,6 +35,10 @@ def test_schedule_format_is_user_friendly():
     assert "<b>Среда, 02.09.2026 — 1 пара</b>" in text
     assert "<i>Иванов И.И.</i>" in text
     assert "<i>09:40 — 11:00</i>" in text and "<b>401</b>" in text
+
+
+def test_lesson_format_shows_subgroup():
+    assert "подгруппа 2" in format_lesson(replace(lesson(), subgroup=2))
 
 
 def test_empty_and_safe_split():

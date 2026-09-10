@@ -40,6 +40,8 @@ def _event(lesson: Lesson, timezone: ZoneInfo, occurrence: int) -> list[str]:
     ]
     if lesson.lesson_type:
         description_parts.append(f"Тип занятия: {lesson.lesson_type}")
+    if lesson.subgroup is not None:
+        description_parts.append(f"Подгруппа: {lesson.subgroup}")
     if lesson.notes:
         description_parts.append(f"Пометки: {', '.join(lesson.notes)}")
     if lesson.url:

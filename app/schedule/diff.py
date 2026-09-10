@@ -16,6 +16,7 @@ def _distance(left: Lesson, right: Lesson) -> int:
         "url",
         "notes",
         "lesson_type",
+        "subgroup",
     )
     return sum(getattr(left, field) != getattr(right, field) for field in fields)
 

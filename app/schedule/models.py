@@ -19,6 +19,7 @@ class Lesson:
     url: str | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
     lesson_type: str | None = None
+    subgroup: int | None = None
 
     @property
     def identity(self) -> tuple[str, Date, str]:

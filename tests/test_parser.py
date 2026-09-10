@@ -9,6 +9,7 @@ from app.schedule.parser import (
     ScheduleParseError,
     merged_value,
     parse_date,
+    parse_lesson_entries,
     parse_lesson_text,
     parse_pair,
 )
@@ -93,6 +94,22 @@ def test_detects_multiple_lesson_types_in_one_cell():
     )
 
     assert parse_lesson_text(text)[-1] == "практика / семинар"
+
+
+def test_splits_subgroup_lessons_and_removes_subgroup_from_location():
+    text = (
+        "Безопасность жизнедеятельности\n"
+        "Алова Н.В. (206[3], 1)\n"
+        "Практикум по основам разработки тех. документации\n"
+        "Кушев В.О. (305[3], 2)"
+    )
+
+    entries = parse_lesson_entries(text)
+
+    assert [(entry[0], entry[1], entry[2], entry[-1]) for entry in entries] == [
+        ("Безопасность жизнедеятельности", "Алова Н.В.", "206[3]", 1),
+        ("Практикум по основам разработки тех. документации", "Кушев В.О.", "305[3]", 2),
+    ]
 
 
 def test_detects_groups_and_normal_cell():

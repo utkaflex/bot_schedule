@@ -28,6 +28,8 @@ def format_lesson(lesson: Lesson) -> str:
     details = [lesson.teacher] if lesson.teacher else []
     if lesson.lesson_type:
         details.append(lesson.lesson_type)
+    if lesson.subgroup is not None:
+        details.append(f"подгруппа {lesson.subgroup}")
     if details:
         lines.append(f"<i>{escape(' · '.join(details))}</i>  📗")
     if lesson.notes:
@@ -89,6 +91,7 @@ def format_changes(changes: tuple[LessonChange, ...]) -> str:
                 "url": "Ссылка",
                 "notes": "Пометки",
                 "lesson_type": "Тип занятия",
+                "subgroup": "Подгруппа",
             }
             for field, label in labels.items():
                 left, right = getattr(before, field), getattr(after, field)

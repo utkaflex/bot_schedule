@@ -28,6 +28,7 @@ def schedule_to_json(schedule: Schedule) -> str:
                     "url": x.url,
                     "notes": list(x.notes),
                     "lesson_type": x.lesson_type,
+                    "subgroup": x.subgroup,
                 }
                 for x in schedule.lessons
             ],
@@ -54,6 +55,7 @@ def schedule_from_json(value: str) -> Schedule:
                 url=x["url"],
                 notes=tuple(x["notes"]),
                 lesson_type=x.get("lesson_type"),
+                subgroup=x.get("subgroup"),
             )
             for x in data["lessons"]
         ),

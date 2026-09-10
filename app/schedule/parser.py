@@ -13,7 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from app.schedule.models import Lesson, Schedule
 
-PARSER_VERSION = 2
+PARSER_VERSION = 3
 
 DATE_RE = re.compile(r"(?P<d>\d{1,2})\.(?P<m>\d{1,2})\.(?P<y>\d{4})")
 PAIR_RE = re.compile(
@@ -22,6 +22,7 @@ PAIR_RE = re.compile(
 )
 URL_RE = re.compile(r"https?://[^\s]+", re.I)
 LOCATION_RE = re.compile(r"\(([^()]*(?:онлайн|\d{2,4}\s*\[\d+\])[^()]*)\)\s*$", re.I)
+SUBGROUP_RE = re.compile(r",\s*(?P<number>\d+)\s*$")
 TEACHER_RE = re.compile(r"([А-ЯЁ][а-яё-]+(?:[ \t]+[А-ЯЁ][а-яё-]+)*[ \t]+[А-ЯЁ]\.[А-ЯЁ]\.)")
 NOTE_RE = re.compile(r"\(([А-ЯЁA-Z]{2,8})\)")
 LESSON_TYPES: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -129,6 +130,51 @@ def parse_lesson_text(
     return subject, teacher, location, is_online, url, notes, lesson_type
 
 
+def parse_lesson_entries(
+    text: str,
+) -> tuple[
+    tuple[str, str | None, str | None, bool, str | None, tuple[str, ...], str | None, int | None],
+    ...,
+]:
+    """Split a cell containing separate lessons for numbered subgroups."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    has_teacher = False
+    for line in lines:
+        if has_teacher and not line.lower().startswith(("http://", "https://")):
+            chunks.append(current)
+            current = []
+            has_teacher = False
+        current.append(line)
+        if TEACHER_RE.search(line):
+            has_teacher = True
+    if current:
+        chunks.append(current)
+
+    # A cell without multiple complete records keeps the established parser behavior.
+    if len(chunks) <= 1:
+        chunks = [lines]
+
+    entries = []
+    previous_subject: str | None = None
+    for chunk in chunks:
+        chunk_text = "\n".join(chunk)
+        first_teacher = next((i for i, line in enumerate(chunk) if TEACHER_RE.search(line)), None)
+        if first_teacher == 0 and previous_subject:
+            chunk_text = f"{previous_subject}\n{chunk_text}"
+        subject, teacher, location, online, url, notes, lesson_type = parse_lesson_text(chunk_text)
+        subgroup = None
+        if location:
+            subgroup_match = SUBGROUP_RE.search(location)
+            if subgroup_match:
+                subgroup = int(subgroup_match["number"])
+                location = SUBGROUP_RE.sub("", location).strip()
+        previous_subject = subject
+        entries.append((subject, teacher, location, online, url, notes, lesson_type, subgroup))
+    return tuple(entries)
+
+
 class ExcelScheduleParser:
     def parse(self, source: str | Path | bytes | BinaryIO) -> Schedule:
         stream: str | Path | BinaryIO
@@ -153,14 +199,8 @@ class ExcelScheduleParser:
                     raw = merged_value(sheet, row, column)
                     if not isinstance(raw, str) or not raw.strip():
                         continue
-                    subject, teacher, location, online, url, notes, lesson_type = parse_lesson_text(
-                        raw
-                    )
-                    lessons.append(
-                        Lesson(
-                            group,
-                            current_date,
-                            *pair,
+                    for entry in parse_lesson_entries(raw):
+                        (
                             subject,
                             teacher,
                             location,
@@ -168,8 +208,23 @@ class ExcelScheduleParser:
                             url,
                             notes,
                             lesson_type,
+                            subgroup,
+                        ) = entry
+                        lessons.append(
+                            Lesson(
+                                group,
+                                current_date,
+                                *pair,
+                                subject,
+                                teacher,
+                                location,
+                                online,
+                                url,
+                                notes,
+                                lesson_type,
+                                subgroup,
+                            )
                         )
-                    )
         if not courses:
             raise ScheduleParseError("No course sheets with group headers found")
         unique = tuple(dict.fromkeys(lessons))
@@ -206,6 +261,7 @@ def infer_lesson_types(lessons: tuple[Lesson, ...]) -> tuple[Lesson, ...]:
             lesson.is_online,
             lesson.url,
             lesson.notes,
+            lesson.subgroup,
         )
 
     for lesson in lessons:
