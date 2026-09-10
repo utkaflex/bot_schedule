@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, inspect, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -21,6 +22,7 @@ class UserRow(Base):
     telegram_id: Mapped[int] = mapped_column(primary_key=True)
     course: Mapped[int] = mapped_column(Integer)
     group_name: Mapped[str] = mapped_column(String(64), index=True)
+    subgroup: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(UTC).replace(tzinfo=None)
@@ -72,6 +74,15 @@ class Database:
     async def create_schema(self) -> None:
         async with self.engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+            await connection.run_sync(self._migrate_schema)
+
+    @staticmethod
+    def _migrate_schema(connection: Connection) -> None:
+        inspector = inspect(connection)
+        assert inspector is not None
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "subgroup" not in columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN subgroup INTEGER"))
 
     async def close(self) -> None:
         await self.engine.dispose()

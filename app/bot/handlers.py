@@ -63,6 +63,25 @@ def build_router(
     def subject_catalog(group: str) -> tuple[str, ...]:
         return tuple(sorted({lesson.subject for lesson in schedules.schedule.for_group(group)}))
 
+    def subgroups_for_group(group: str) -> tuple[int, ...]:
+        return tuple(
+            sorted(
+                {
+                    lesson.subgroup
+                    for lesson in schedules.schedule.for_group(group)
+                    if lesson.subgroup is not None
+                }
+            )
+        )
+
+    def visible_lessons(user: object, lessons: tuple[Lesson, ...]) -> tuple[Lesson, ...]:
+        subgroup = getattr(user, "subgroup", None)
+        if subgroup is None:
+            return lessons
+        return tuple(
+            lesson for lesson in lessons if lesson.subgroup is None or lesson.subgroup == subgroup
+        )
+
     def subject_key(subject: str) -> str:
         return hashlib.sha256(subject.encode()).hexdigest()[:12]
 
@@ -160,13 +179,19 @@ def build_router(
         keyboard = inline(
             [
                 ("Сменить группу", "settings:group"),
+                ("Сменить подгруппу", "settings:subgroup"),
                 ("Мои предметы", "settings:subjects"),
                 (f"Уведомления: {state}", "settings:notify"),
                 ("📅 Календарь", "settings:calendar"),
                 ("Обновить расписание", "settings:update"),
             ]
         )
-        text = f"<b>Профиль</b>\n\nГруппа: {user.group_name}\nУведомления: {state}"
+        subgroup = getattr(user, "subgroup", None)
+        subgroup_text = str(subgroup) if subgroup is not None else "все"
+        text = (
+            f"<b>Профиль</b>\n\nГруппа: {user.group_name}\n"
+            f"Подгруппа: {subgroup_text}\nУведомления: {state}"
+        )
         if edit:
             await message.edit_text(text, reply_markup=keyboard)
         else:
@@ -325,6 +350,22 @@ def build_router(
     async def group(callback: CallbackQuery) -> None:
         assert callback.data is not None and isinstance(callback.message, Message)
         _, course_value, group_name = callback.data.split(":", 2)
+        subgroup_numbers = subgroups_for_group(group_name)
+        if subgroup_numbers:
+            items = [
+                (
+                    f"Подгруппа {number}",
+                    f"subgroup:{course_value}:{group_name}:{number}",
+                )
+                for number in subgroup_numbers
+            ]
+            items.append(("Показывать все", f"subgroup:{course_value}:{group_name}:all"))
+            await callback.message.edit_text(
+                f"Группа {group_name}. Выбери свою подгруппу:",
+                reply_markup=inline(items),
+            )
+            await callback.answer()
+            return
         if callback.from_user:
             await users.save(callback.from_user.id, int(course_value), group_name)
         with contextlib.suppress(TelegramBadRequest):
@@ -335,6 +376,37 @@ def build_router(
             "Об изменениях расписания я сообщу автоматически.",
             reply_markup=MAIN,
         )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("subgroup:"))
+    async def subgroup(callback: CallbackQuery) -> None:
+        assert callback.data is not None and isinstance(callback.message, Message)
+        _, course_value, group_name, subgroup_raw = callback.data.split(":", 3)
+        subgroup_number = None if subgroup_raw == "all" else int(subgroup_raw)
+        await users.save(callback.from_user.id, int(course_value), group_name, subgroup_number)
+        with contextlib.suppress(TelegramBadRequest):
+            await callback.message.delete()
+        selected = str(subgroup_number) if subgroup_number is not None else "все"
+        await callback.message.answer(
+            f"Готово.\n\nТвоя группа: {group_name}\nПодгруппа: {selected}", reply_markup=MAIN
+        )
+        await callback.answer()
+
+    @router.callback_query(F.data == "settings:subgroup")
+    async def settings_subgroup(callback: CallbackQuery) -> None:
+        assert isinstance(callback.message, Message)
+        user = await users.get(callback.from_user.id)
+        if user is None:
+            await choose_education(callback.message, edit=True)
+        else:
+            numbers = subgroups_for_group(user.group_name)
+            items = [
+                (f"Подгруппа {number}", f"subgroup:{user.course}:{user.group_name}:{number}")
+                for number in numbers
+            ]
+            items.append(("Показывать все", f"subgroup:{user.course}:{user.group_name}:all"))
+            items.append(("‹ Назад", "settings:back"))
+            await callback.message.edit_text("Выбери подгруппу:", reply_markup=inline(items))
         await callback.answer()
 
     async def show(message: Message, offset: int | None) -> None:
@@ -348,6 +420,7 @@ def build_router(
             if offset is None
             else schedules.for_date(user.group_name, today + timedelta(days=offset))
         )
+        lessons = visible_lessons(user, lessons)
         hidden = await users.hidden_subjects(user.telegram_id)
         lessons = tuple(lesson for lesson in lessons if lesson.subject not in hidden)
         empty = "Сегодня занятий нет." if offset == 0 else "На этот день занятий нет."
@@ -376,6 +449,10 @@ def build_router(
             lesson
             for lesson in schedules.for_week(user.group_name, monday)
             if lesson.subject not in hidden
+            and (
+                getattr(user, "subgroup", None) is None
+                or lesson.subgroup in (None, user.subgroup)
+            )
         )
         if not lessons:
             await message.answer("На эту неделю занятий нет.", reply_markup=MAIN)

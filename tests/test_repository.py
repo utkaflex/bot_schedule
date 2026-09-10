@@ -27,6 +27,14 @@ async def test_create_update_toggle_and_persistence(db):
     assert (await UserRepository(db.sessions).get(10)).group_name == "G2"
 
 
+async def test_subgroup_is_saved_and_can_be_changed(db):
+    repo = UserRepository(db.sessions)
+    user = await repo.save(10, 4, "G1", 5)
+    assert user.subgroup == 5
+    user = await repo.set_subgroup(10, 6)
+    assert user is not None and user.subgroup == 6
+
+
 async def test_subscribers_are_filtered(db):
     repo = UserRepository(db.sessions)
     await repo.save(1, 1, "G1")

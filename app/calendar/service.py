@@ -150,10 +150,12 @@ class CalendarService:
         if user is None:
             return None
         hidden = await self.users.hidden_subjects(telegram_id)
+        subgroup = getattr(user, "subgroup", None)
         lessons = tuple(
             lesson
             for lesson in self.schedules.schedule.for_group(user.group_name)
             if lesson.subject not in hidden
+            and (subgroup is None or lesson.subgroup in (None, subgroup))
         )
         return user.group_name, build_ics(user.group_name, lessons, self.timezone)
 
@@ -174,9 +176,11 @@ class CalendarService:
         if user is None:
             return None
         hidden = await self.users.hidden_subjects(user.telegram_id)
+        subgroup = getattr(user, "subgroup", None)
         lessons = tuple(
             lesson
             for lesson in self.schedules.schedule.for_group(user.group_name)
             if lesson.subject not in hidden
+            and (subgroup is None or lesson.subgroup in (None, subgroup))
         )
         return build_ics(user.group_name, lessons, self.timezone)

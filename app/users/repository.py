@@ -15,6 +15,7 @@ def _model(row: UserRow) -> User:
         row.telegram_id,
         row.course,
         row.group_name,
+        row.subgroup,
         row.notifications_enabled,
         row.created_at,
         row.updated_at,
@@ -30,7 +31,9 @@ class UserRepository:
             row = await session.get(UserRow, telegram_id)
             return _model(row) if row else None
 
-    async def save(self, telegram_id: int, course: int, group_name: str) -> User:
+    async def save(
+        self, telegram_id: int, course: int, group_name: str, subgroup: int | None = None
+    ) -> User:
         async with self.sessions() as session:
             row = await session.get(UserRow, telegram_id)
             now = datetime.now(UTC).replace(tzinfo=None)
@@ -39,12 +42,28 @@ class UserRepository:
                     telegram_id=telegram_id,
                     course=course,
                     group_name=group_name,
+                    subgroup=subgroup,
                     created_at=now,
                     updated_at=now,
                 )
                 session.add(row)
             else:
-                row.course, row.group_name, row.updated_at = course, group_name, now
+                row.course, row.group_name, row.subgroup, row.updated_at = (
+                    course,
+                    group_name,
+                    subgroup,
+                    now,
+                )
+            await session.commit()
+            return _model(row)
+
+    async def set_subgroup(self, telegram_id: int, subgroup: int | None) -> User | None:
+        async with self.sessions() as session:
+            row = await session.get(UserRow, telegram_id)
+            if row is None:
+                return None
+            row.subgroup = subgroup
+            row.updated_at = datetime.now(UTC).replace(tzinfo=None)
             await session.commit()
             return _model(row)
 

@@ -7,6 +7,7 @@ class User:
     telegram_id: int
     course: int
     group_name: str
+    subgroup: int | None
     notifications_enabled: bool
     created_at: datetime
     updated_at: datetime

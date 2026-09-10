@@ -153,6 +153,29 @@ async def test_hidden_subject_is_absent_from_export():
     assert "Распознавание образов" not in exported[1].decode()
 
 
+async def test_calendar_only_contains_selected_subgroup_and_common_lessons():
+    common = replace(sample_lesson(), subject="Общая пара", subgroup=None)
+    first = replace(sample_lesson(), subject="Для первой", subgroup=1)
+    second = replace(sample_lesson(), subject="Для второй", subgroup=2)
+
+    class SubgroupUsers(Users):
+        async def get(self, telegram_id):
+            return SimpleNamespace(telegram_id=telegram_id, group_name="РИС-23-3", subgroup=2)
+
+    service = CalendarService(
+        SubgroupUsers(),
+        ScheduleService(Schedule({4: ("РИС-23-3",)}, (common, first, second))),
+        ZoneInfo("Asia/Yekaterinburg"),
+        None,
+    )
+    exported = await service.export_for_user(7)
+    assert exported is not None
+    content = exported[1].decode()
+    assert "Общая пара" in content
+    assert "Для второй" in content
+    assert "Для первой" not in content
+
+
 def test_real_schedule_ics_contains_all_ten_lessons():
     schedule = ExcelScheduleParser().parse("tests/fixtures/real_schedule.xlsx")
     lessons = schedule.for_group("РИС-23-3")

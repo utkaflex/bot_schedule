@@ -15,8 +15,8 @@ class Users:
     async def get(self, user_id):
         return self.user
 
-    async def save(self, user_id, course, group):
-        self.saved = (user_id, course, group)
+    async def save(self, user_id, course, group, subgroup=None):
+        self.saved = (user_id, course, group, subgroup)
 
     async def toggle_notifications(self, user_id):
         self.user = SimpleNamespace(notifications_enabled=False)
@@ -164,7 +164,34 @@ async def test_education_program_course_and_group_selection(monkeypatch):
     assert "выбери группу" in course.message.edits[0][0]
     group = FakeCallback("group:4:РИС-23-3")
     await callback_handlers["group"](group)
-    assert users.saved == (7, 4, "РИС-23-3") and "Готово" in group.message.answers[0][0]
+    assert users.saved == (7, 4, "РИС-23-3", None) and "Готово" in group.message.answers[0][0]
+
+
+async def test_group_registration_asks_for_subgroup_and_saves_choice(monkeypatch):
+    monkeypatch.setattr(handlers, "Message", FakeMessage)
+    monday = datetime.now(ZoneInfo("Asia/Yekaterinburg")).date()
+    lessons = (
+        Lesson("G-1", monday, 1, time(8), time(9), "A", subgroup=1),
+        Lesson("G-1", monday, 1, time(8), time(9), "B", subgroup=2),
+    )
+    users = Users()
+    router = handlers.build_router(
+        users, ScheduleService(Schedule({1: ("G-1",)}, lessons)), ZoneInfo("Asia/Yekaterinburg")
+    )
+    callback_handlers = callbacks(router, "callback_query")
+    group = FakeCallback("group:1:G-1")
+    await callback_handlers["group"](group)
+    assert users.saved is None
+    assert [row[0].text for row in group.message.edits[0][1].inline_keyboard] == [
+        "Подгруппа 1",
+        "Подгруппа 2",
+        "Показывать все",
+    ]
+
+    subgroup = FakeCallback("subgroup:1:G-1:2")
+    await callback_handlers["subgroup"](subgroup)
+    assert users.saved == (7, 1, "G-1", 2)
+    assert "Подгруппа: 2" in subgroup.message.answers[0][0]
 
 
 async def test_master_program_is_placeholder(monkeypatch):
