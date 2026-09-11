@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app.notifications.service import NotificationService
@@ -14,6 +14,10 @@ from app.schedule.service import ScheduleService
 from app.sources.yandex_disk import YandexScheduleSource
 
 log = logging.getLogger(__name__)
+
+
+def _lesson_week(day: date) -> date:
+    return day - timedelta(days=day.weekday())
 
 
 class ScheduleUpdater:
@@ -51,7 +55,8 @@ class ScheduleUpdater:
                 )
                 return False
             old = await self.repository.latest()
-            new = merge_schedules(tuple(self.parser.parse(content) for content in contents))
+            parsed = tuple(self.parser.parse(content) for content in contents)
+            new = merge_schedules(parsed)
             current = items[0]
             await self.repository.save(
                 " | ".join(item.name for item in items),
@@ -62,23 +67,57 @@ class ScheduleUpdater:
             )
             self.schedules.replace(new)
             changed_groups: tuple[str, ...] = ()
+            new_week_starts: tuple[date, ...] = ()
             if old is not None:
+                old_weeks = {_lesson_week(lesson.date) for lesson in old.lessons}
+                new_weeks = {_lesson_week(lesson.date) for lesson in new.lessons}
+                common_weeks = old_weeks & new_weeks
+                new_week_starts = tuple(
+                    sorted(
+                        item.start_date
+                        for item in items
+                        if not any(
+                            item.start_date <= lesson.date <= item.start_date + timedelta(days=6)
+                            for lesson in old.lessons
+                        )
+                    )
+                )
                 groups = {lesson.group for lesson in old.lessons + new.lessons}
                 changed_groups = tuple(
                     sorted(
                         group
                         for group in groups
-                        if set(old.for_group(group)) != set(new.for_group(group))
+                        if {
+                            lesson
+                            for lesson in old.for_group(group)
+                            if _lesson_week(lesson.date) in common_weeks
+                        }
+                        != {
+                            lesson
+                            for lesson in new.for_group(group)
+                            if _lesson_week(lesson.date) in common_weeks
+                        }
                     )
                 )
                 if changed_groups:
                     await self.notifications.notify_groups(changed_groups)
+                for item, schedule in zip(items, parsed, strict=True):
+                    if item.start_date not in new_week_starts:
+                        continue
+                    week_groups = tuple(
+                        sorted({group for groups in schedule.courses.values() for group in groups})
+                    )
+                    await self.notifications.notify_new_week(
+                        item.week_number, item.start_date, week_groups
+                    )
             log.info(
-                "Schedule update processed: files=%s; hash=%s; lessons=%s; changed_groups=%s",
+                "Schedule update processed: files=%s; hash=%s; lessons=%s; "
+                "changed_groups=%s; new_weeks=%s",
                 " | ".join(item.name for item in items),
                 content_hash[:12],
                 len(new.lessons),
                 len(changed_groups),
+                len(new_week_starts),
             )
             return True
 

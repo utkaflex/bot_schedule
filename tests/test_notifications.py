@@ -46,3 +46,23 @@ async def test_generic_group_update_reaches_all_enabled_subscribers(tmp_path):
     assert "Расписание группы РИС-23-3 обновилось" in sent[0][1]
     assert "расписание на неделю" in sent[0][1]
     await db.close()
+
+
+async def test_new_week_notification_reaches_subscribers(tmp_path):
+    db = Database(f"sqlite+aiosqlite:///{tmp_path / 'week.db'}")
+    await db.create_schema()
+    users = UserRepository(db.sessions)
+    await users.save(1, 1, "РИС-25-1")
+    sent = []
+
+    async def send(user, text):
+        sent.append((user, text))
+
+    await NotificationService(users, send).notify_new_week(
+        3, date(2026, 9, 14), ("РИС-25-1",)
+    )
+
+    assert [item[0] for item in sent] == [1]
+    assert "неделю №3" in sent[0][1]
+    assert "14.09–20.09.2026" in sent[0][1]
+    await db.close()

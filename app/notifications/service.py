@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import date, timedelta
 from html import escape
 
 from app.bot.formatters import format_changes, split_messages
@@ -20,6 +21,20 @@ class NotificationService:
                 f"<b>🔔 Расписание группы {escape(group)} обновилось</b>\n\n"
                 "В расписании есть изменения. Откройте расписание на неделю "
                 "и проверьте актуальные пары."
+            )
+            for user in await self.users.subscribers(group):
+                await self.send(user.telegram_id, message)
+
+    async def notify_new_week(
+        self, week_number: int, start_date: date, groups: tuple[str, ...]
+    ) -> None:
+        end_date = start_date + timedelta(days=6)
+        for group in groups:
+            message = (
+                f"<b>📅 Добавили расписание на неделю №{week_number}</b>\n\n"
+                f"{start_date:%d.%m}–{end_date:%d.%m.%Y}\n"
+                f"Группа: {escape(group)}\n\n"
+                "Расписание уже доступно в разделе «Неделя» и в календарной подписке."
             )
             for user in await self.users.subscribers(group):
                 await self.send(user.telegram_id, message)
