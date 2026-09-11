@@ -145,12 +145,23 @@ class CalendarService:
         self.timezone = timezone
         self.base_url = base_url.rstrip("/") if base_url else None
 
+    def _selected_subgroup(self, user: object) -> int | None:
+        subgroup = getattr(user, "subgroup", None)
+        available = {
+            lesson.subgroup
+            for lesson in self.schedules.schedule.for_group(getattr(user, "group_name", ""))
+            if lesson.subgroup is not None
+        }
+        if subgroup is not None and subgroup not in available and available <= {1, 2}:
+            return 1 if subgroup % 2 else 2
+        return subgroup
+
     async def export_for_user(self, telegram_id: int) -> tuple[str, bytes] | None:
         user = await self.users.get(telegram_id)
         if user is None:
             return None
         hidden = await self.users.hidden_subjects(telegram_id)
-        subgroup = getattr(user, "subgroup", None)
+        subgroup = self._selected_subgroup(user)
         lessons = tuple(
             lesson
             for lesson in self.schedules.schedule.for_group(user.group_name)
@@ -176,7 +187,7 @@ class CalendarService:
         if user is None:
             return None
         hidden = await self.users.hidden_subjects(user.telegram_id)
-        subgroup = getattr(user, "subgroup", None)
+        subgroup = self._selected_subgroup(user)
         lessons = tuple(
             lesson
             for lesson in self.schedules.schedule.for_group(user.group_name)

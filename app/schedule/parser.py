@@ -13,7 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from app.schedule.models import Lesson, Schedule
 
-PARSER_VERSION = 4
+PARSER_VERSION = 5
 
 DATE_RE = re.compile(r"(?P<d>\d{1,2})\.(?P<m>\d{1,2})\.(?P<y>\d{4})")
 PAIR_RE = re.compile(
@@ -234,7 +234,7 @@ class ExcelScheduleParser:
         if not courses:
             raise ScheduleParseError("No course sheets with group headers found")
         unique = tuple(dict.fromkeys(lessons))
-        return Schedule(courses, infer_lesson_types(unique))
+        return Schedule(courses, infer_lesson_types(normalize_subgroups(unique)))
 
     @staticmethod
     def _find_groups(sheet: Worksheet) -> tuple[int, dict[int, str]]:
@@ -294,3 +294,33 @@ def infer_lesson_types(lessons: tuple[Lesson, ...]) -> tuple[Lesson, ...]:
         )
         inferred.append(replace(lesson, lesson_type=lesson_type))
     return tuple(inferred)
+
+
+def normalize_subgroups(lessons: tuple[Lesson, ...]) -> tuple[Lesson, ...]:
+    """Convert stream-wide subgroup numbers to 1/2 within each academic group."""
+    parsed_groups: dict[str, tuple[str, int]] = {}
+    globally_numbered_cohorts: set[str] = set()
+    for lesson in lessons:
+        try:
+            cohort, number_raw = lesson.group.rsplit("-", 1)
+            group_number = int(number_raw)
+        except (ValueError, TypeError):
+            continue
+        parsed_groups[lesson.group] = (cohort, group_number)
+        if group_number > 1 and lesson.subgroup == group_number * 2:
+            globally_numbered_cohorts.add(cohort)
+
+    normalized: list[Lesson] = []
+    for lesson in lessons:
+        parsed = parsed_groups.get(lesson.group)
+        if lesson.subgroup is None or parsed is None:
+            normalized.append(lesson)
+            continue
+        cohort, group_number = parsed
+        first = group_number * 2 - 1
+        second = group_number * 2
+        if cohort in globally_numbered_cohorts and lesson.subgroup in (first, second):
+            normalized.append(replace(lesson, subgroup=1 if lesson.subgroup == first else 2))
+        else:
+            normalized.append(lesson)
+    return tuple(normalized)

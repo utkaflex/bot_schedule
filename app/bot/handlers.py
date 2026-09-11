@@ -74,8 +74,15 @@ def build_router(
             )
         )
 
-    def visible_lessons(user: object, lessons: tuple[Lesson, ...]) -> tuple[Lesson, ...]:
+    def selected_subgroup(user: object) -> int | None:
         subgroup = getattr(user, "subgroup", None)
+        available = subgroups_for_group(getattr(user, "group_name", ""))
+        if subgroup is not None and subgroup not in available and set(available) <= {1, 2}:
+            return 1 if subgroup % 2 else 2
+        return subgroup
+
+    def visible_lessons(user: object, lessons: tuple[Lesson, ...]) -> tuple[Lesson, ...]:
+        subgroup = selected_subgroup(user)
         if subgroup is None:
             return lessons
         return tuple(
@@ -186,7 +193,7 @@ def build_router(
                 ("Обновить расписание", "settings:update"),
             ]
         )
-        subgroup = getattr(user, "subgroup", None)
+        subgroup = selected_subgroup(user)
         subgroup_text = str(subgroup) if subgroup is not None else "все"
         text = (
             f"<b>Профиль</b>\n\nГруппа: {user.group_name}\n"
@@ -445,14 +452,12 @@ def build_router(
             await choose_education(message)
             return
         hidden = await users.hidden_subjects(user.telegram_id)
+        subgroup = selected_subgroup(user)
         lessons = tuple(
             lesson
             for lesson in schedules.for_week(user.group_name, monday)
             if lesson.subject not in hidden
-            and (
-                getattr(user, "subgroup", None) is None
-                or lesson.subgroup in (None, user.subgroup)
-            )
+            and (subgroup is None or lesson.subgroup in (None, subgroup))
         )
         if not lessons:
             await message.answer("На эту неделю занятий нет.", reply_markup=MAIN)
