@@ -39,6 +39,7 @@ MAIN = ReplyKeyboardMarkup(
     resize_keyboard=True,
 )
 SUBJECTS_PER_PAGE = 12
+SUBGROUP_SUBJECTS_PER_PAGE = 8
 
 
 def inline(items: list[tuple[str, str]]) -> InlineKeyboardMarkup:
@@ -81,12 +82,26 @@ def build_router(
             return 1 if subgroup % 2 else 2
         return subgroup
 
-    def visible_lessons(user: object, lessons: tuple[Lesson, ...]) -> tuple[Lesson, ...]:
-        subgroup = selected_subgroup(user)
-        if subgroup is None:
-            return lessons
+    def visible_lessons(
+        user: object, lessons: tuple[Lesson, ...], overrides: dict[str, int]
+    ) -> tuple[Lesson, ...]:
+        default_subgroup = selected_subgroup(user)
         return tuple(
-            lesson for lesson in lessons if lesson.subgroup is None or lesson.subgroup == subgroup
+            lesson
+            for lesson in lessons
+            if lesson.subgroup is None
+            or lesson.subgroup == overrides.get(lesson.subject, default_subgroup)
+        )
+
+    def subgroups_for_subject(group: str, subject: str) -> tuple[int, ...]:
+        return tuple(
+            sorted(
+                {
+                    lesson.subgroup
+                    for lesson in schedules.schedule.for_group(group)
+                    if lesson.subject == subject and lesson.subgroup is not None
+                }
+            )
         )
 
     def subject_key(subject: str) -> str:
@@ -153,6 +168,59 @@ def build_router(
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
 
+    async def show_subject_subgroups(message: Message, telegram_id: int, page: int = 0) -> None:
+        user = await users.get(telegram_id)
+        if user is None:
+            await choose_education(message)
+            return
+        subjects = tuple(
+            subject
+            for subject in subject_catalog(user.group_name)
+            if subgroups_for_subject(user.group_name, subject)
+        )
+        overrides = await users.subject_subgroups(telegram_id)
+        pages = max(
+            1,
+            (len(subjects) + SUBGROUP_SUBJECTS_PER_PAGE - 1)
+            // SUBGROUP_SUBJECTS_PER_PAGE,
+        )
+        page = min(max(page, 0), pages - 1)
+        start = page * SUBGROUP_SUBJECTS_PER_PAGE
+        rows = []
+        for subject in subjects[start : start + SUBGROUP_SUBJECTS_PER_PAGE]:
+            selected = overrides.get(subject)
+            state = f"подгруппа {selected}" if selected is not None else "основная"
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=f"{subject} · {state}",
+                        callback_data=f"subgroups:s:{page}:{subject_key(subject)}",
+                    )
+                ]
+            )
+        navigation: list[InlineKeyboardButton] = []
+        if page > 0:
+            navigation.append(
+                InlineKeyboardButton(text="‹", callback_data=f"subgroups:p:{page - 1}")
+            )
+        if page + 1 < pages:
+            navigation.append(
+                InlineKeyboardButton(text="›", callback_data=f"subgroups:p:{page + 1}")
+            )
+        if navigation:
+            rows.append(navigation)
+        rows.append(
+            [InlineKeyboardButton(text="Сбросить исключения", callback_data="subgroups:reset")]
+        )
+        rows.append([InlineKeyboardButton(text="‹ Назад", callback_data="settings:back")])
+        await message.edit_text(
+            "<b>Подгруппы по предметам</b>\n\n"
+            "Здесь можно выбрать другую подгруппу только для отдельных дисциплин. "
+            "Остальные используют основную настройку из профиля.\n\n"
+            f"Страница {page + 1} из {pages}.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        )
+
     async def choose_education(message: Message, *, edit: bool = False) -> None:
         text = (
             "Бот расписания\n\nПокажу пары и сообщу, если что-то изменится.\n\n"
@@ -187,6 +255,7 @@ def build_router(
             [
                 ("Сменить группу", "settings:group"),
                 ("Сменить подгруппу", "settings:subgroup"),
+                ("Подгруппы по предметам", "settings:subject_subgroups"),
                 ("Мои предметы", "settings:subjects"),
                 (f"Уведомления: {state}", "settings:notify"),
                 ("📅 Календарь", "settings:calendar"),
@@ -427,7 +496,8 @@ def build_router(
             if offset is None
             else schedules.for_date(user.group_name, today + timedelta(days=offset))
         )
-        lessons = visible_lessons(user, lessons)
+        overrides = await users.subject_subgroups(user.telegram_id)
+        lessons = visible_lessons(user, lessons, overrides)
         hidden = await users.hidden_subjects(user.telegram_id)
         lessons = tuple(lesson for lesson in lessons if lesson.subject not in hidden)
         empty = "Сегодня занятий нет." if offset == 0 else "На этот день занятий нет."
@@ -453,11 +523,15 @@ def build_router(
             return
         hidden = await users.hidden_subjects(user.telegram_id)
         subgroup = selected_subgroup(user)
+        overrides = await users.subject_subgroups(user.telegram_id)
         lessons = tuple(
             lesson
             for lesson in schedules.for_week(user.group_name, monday)
             if lesson.subject not in hidden
-            and (subgroup is None or lesson.subgroup in (None, subgroup))
+            and (
+                lesson.subgroup is None
+                or lesson.subgroup == overrides.get(lesson.subject, subgroup)
+            )
         )
         if not lessons:
             await message.answer("На эту неделю занятий нет.", reply_markup=MAIN)
@@ -540,6 +614,88 @@ def build_router(
     async def subjects(callback: CallbackQuery) -> None:
         assert isinstance(callback.message, Message)
         await show_subjects(callback.message, callback.from_user.id)
+        await callback.answer()
+
+    @router.callback_query(F.data == "settings:subject_subgroups")
+    async def subject_subgroups(callback: CallbackQuery) -> None:
+        assert isinstance(callback.message, Message)
+        await show_subject_subgroups(callback.message, callback.from_user.id)
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("subgroups:p:"))
+    async def subject_subgroups_page(callback: CallbackQuery) -> None:
+        assert callback.data is not None and isinstance(callback.message, Message)
+        page = int(callback.data.rsplit(":", 1)[1])
+        await show_subject_subgroups(callback.message, callback.from_user.id, page)
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("subgroups:s:"))
+    async def subject_subgroups_select(callback: CallbackQuery) -> None:
+        assert callback.data is not None and isinstance(callback.message, Message)
+        _, _, page_raw, key = callback.data.split(":", 3)
+        user = await users.get(callback.from_user.id)
+        if user is None:
+            await choose_education(callback.message, edit=True)
+            await callback.answer()
+            return
+        subject = next(
+            (
+                item
+                for item in subject_catalog(user.group_name)
+                if subject_key(item) == key
+            ),
+            None,
+        )
+        if subject is None:
+            await show_subject_subgroups(callback.message, callback.from_user.id, int(page_raw))
+            await callback.answer()
+            return
+        default = selected_subgroup(user)
+        default_text = str(default) if default is not None else "все"
+        items = [
+            (
+                f"Подгруппа {number}",
+                f"subgroups:set:{page_raw}:{key}:{number}",
+            )
+            for number in subgroups_for_subject(user.group_name, subject)
+        ]
+        items.append(
+            (f"Основная настройка ({default_text})", f"subgroups:set:{page_raw}:{key}:default")
+        )
+        items.append(("‹ Назад", f"subgroups:p:{page_raw}"))
+        await callback.message.edit_text(
+            f"<b>{escape(subject)}</b>\n\nКакую подгруппу показывать для этого предмета?",
+            reply_markup=inline(items),
+        )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("subgroups:set:"))
+    async def subject_subgroups_set(callback: CallbackQuery) -> None:
+        assert callback.data is not None and isinstance(callback.message, Message)
+        _, _, page_raw, key, subgroup_raw = callback.data.split(":", 4)
+        user = await users.get(callback.from_user.id)
+        if user is not None:
+            subject = next(
+                (
+                    item
+                    for item in subject_catalog(user.group_name)
+                    if subject_key(item) == key
+                ),
+                None,
+            )
+            if subject is not None:
+                subgroup = None if subgroup_raw == "default" else int(subgroup_raw)
+                allowed = subgroups_for_subject(user.group_name, subject)
+                if subgroup is None or subgroup in allowed:
+                    await users.set_subject_subgroup(callback.from_user.id, subject, subgroup)
+        await show_subject_subgroups(callback.message, callback.from_user.id, int(page_raw))
+        await callback.answer()
+
+    @router.callback_query(F.data == "subgroups:reset")
+    async def subject_subgroups_reset(callback: CallbackQuery) -> None:
+        assert isinstance(callback.message, Message)
+        await users.clear_subject_subgroups(callback.from_user.id)
+        await show_subject_subgroups(callback.message, callback.from_user.id)
         await callback.answer()
 
     @router.callback_query(F.data.startswith("subjects:p:"))

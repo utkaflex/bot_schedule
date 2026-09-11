@@ -64,6 +64,15 @@ class UserHiddenSubjectRow(Base):
     subject_name: Mapped[str] = mapped_column(String(512), primary_key=True)
 
 
+class UserSubjectSubgroupRow(Base):
+    __tablename__ = "user_subject_subgroups"
+    telegram_id: Mapped[int] = mapped_column(
+        ForeignKey("users.telegram_id", ondelete="CASCADE"), primary_key=True
+    )
+    subject_name: Mapped[str] = mapped_column(String(512), primary_key=True)
+    subgroup: Mapped[int] = mapped_column(Integer)
+
+
 class Database:
     def __init__(self, url: str) -> None:
         self.engine: AsyncEngine = create_async_engine(url)

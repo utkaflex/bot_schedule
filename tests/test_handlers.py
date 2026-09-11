@@ -11,6 +11,7 @@ class Users:
     def __init__(self, user=None):
         self.user = user
         self.saved = None
+        self.overrides = {}
 
     async def get(self, user_id):
         return self.user
@@ -30,6 +31,18 @@ class Users:
 
     async def clear_hidden_subjects(self, user_id):
         return None
+
+    async def subject_subgroups(self, user_id):
+        return dict(self.overrides)
+
+    async def set_subject_subgroup(self, user_id, subject, subgroup):
+        if subgroup is None:
+            self.overrides.pop(subject, None)
+        else:
+            self.overrides[subject] = subgroup
+
+    async def clear_subject_subgroups(self, user_id):
+        self.overrides.clear()
 
     async def all_users(self):
         return (
@@ -192,6 +205,32 @@ async def test_group_registration_asks_for_subgroup_and_saves_choice(monkeypatch
     await callback_handlers["subgroup"](subgroup)
     assert users.saved == (7, 1, "G-1", 2)
     assert "Подгруппа: 2" in subgroup.message.answers[0][0]
+
+
+async def test_subject_can_override_default_subgroup(monkeypatch):
+    monkeypatch.setattr(handlers, "Message", FakeMessage)
+    monday = datetime.now(ZoneInfo("Asia/Yekaterinburg")).date()
+    lessons = (
+        Lesson("G-1", monday, 1, time(8), time(9), "Базы данных", subgroup=1),
+        Lesson("G-1", monday, 1, time(8), time(9), "Базы данных", subgroup=2),
+    )
+    user = SimpleNamespace(
+        telegram_id=7, course=1, group_name="G-1", subgroup=1, notifications_enabled=True
+    )
+    users = Users(user)
+    router = handlers.build_router(
+        users, ScheduleService(Schedule({1: ("G-1",)}, lessons)), ZoneInfo("Asia/Yekaterinburg")
+    )
+    callback_handlers = callbacks(router, "callback_query")
+    menu = FakeCallback("settings:subject_subgroups")
+    await callback_handlers["subject_subgroups"](menu)
+    subject_button = menu.message.edits[-1][1].inline_keyboard[0][0]
+    select = FakeCallback(subject_button.callback_data)
+    await callback_handlers["subject_subgroups_select"](select)
+    subgroup_button = select.message.edits[-1][1].inline_keyboard[1][0]
+    choice = FakeCallback(subgroup_button.callback_data)
+    await callback_handlers["subject_subgroups_set"](choice)
+    assert users.overrides == {"Базы данных": 2}
 
 
 async def test_master_program_is_placeholder(monkeypatch):

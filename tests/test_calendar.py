@@ -111,6 +111,9 @@ class Users:
     async def hidden_subjects(self, telegram_id):
         return self.hidden
 
+    async def subject_subgroups(self, telegram_id):
+        return {}
+
 
 async def test_calendar_service_export_and_subscription_url():
     schedules = ScheduleService(Schedule({4: ("РИС-23-3",)}, (sample_lesson(),)))
@@ -174,6 +177,32 @@ async def test_calendar_only_contains_selected_subgroup_and_common_lessons():
     assert "Общая пара" in content
     assert "Для второй" in content
     assert "Для первой" not in content
+
+
+async def test_calendar_applies_subject_specific_subgroup_override():
+    first = replace(sample_lesson(), subject="Базы данных", subgroup=1)
+    second = replace(sample_lesson(), subject="Базы данных", subgroup=2, location="402[1]")
+
+    class OverrideUsers(Users):
+        async def get(self, telegram_id):
+            return SimpleNamespace(
+                telegram_id=telegram_id, group_name="РИС-23-3", subgroup=1
+            )
+
+        async def subject_subgroups(self, telegram_id):
+            return {"Базы данных": 2}
+
+    service = CalendarService(
+        OverrideUsers(),
+        ScheduleService(Schedule({4: ("РИС-23-3",)}, (first, second))),
+        ZoneInfo("Asia/Yekaterinburg"),
+        None,
+    )
+    exported = await service.export_for_user(7)
+    assert exported is not None
+    content = exported[1].decode()
+    assert "LOCATION:402[1]" in content
+    assert "LOCATION:401[1]" not in content
 
 
 def test_real_schedule_ics_contains_all_ten_lessons():

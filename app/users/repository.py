@@ -6,7 +6,12 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.storage.database import CalendarSubscriptionRow, UserHiddenSubjectRow, UserRow
+from app.storage.database import (
+    CalendarSubscriptionRow,
+    UserHiddenSubjectRow,
+    UserRow,
+    UserSubjectSubgroupRow,
+)
 from app.users.models import User
 
 
@@ -48,6 +53,12 @@ class UserRepository:
                 )
                 session.add(row)
             else:
+                if row.group_name != group_name:
+                    await session.execute(
+                        delete(UserSubjectSubgroupRow).where(
+                            UserSubjectSubgroupRow.telegram_id == telegram_id
+                        )
+                    )
                 row.course, row.group_name, row.subgroup, row.updated_at = (
                     course,
                     group_name,
@@ -152,5 +163,41 @@ class UserRepository:
         async with self.sessions() as session:
             await session.execute(
                 delete(UserHiddenSubjectRow).where(UserHiddenSubjectRow.telegram_id == telegram_id)
+            )
+            await session.commit()
+
+    async def subject_subgroups(self, telegram_id: int) -> dict[str, int]:
+        async with self.sessions() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        UserSubjectSubgroupRow.subject_name,
+                        UserSubjectSubgroupRow.subgroup,
+                    ).where(UserSubjectSubgroupRow.telegram_id == telegram_id)
+                )
+            ).all()
+            return {subject: subgroup for subject, subgroup in rows}
+
+    async def set_subject_subgroup(
+        self, telegram_id: int, subject: str, subgroup: int | None
+    ) -> None:
+        async with self.sessions() as session:
+            key = {"telegram_id": telegram_id, "subject_name": subject}
+            row = await session.get(UserSubjectSubgroupRow, key)
+            if subgroup is None:
+                if row is not None:
+                    await session.delete(row)
+            elif row is None:
+                session.add(UserSubjectSubgroupRow(**key, subgroup=subgroup))
+            else:
+                row.subgroup = subgroup
+            await session.commit()
+
+    async def clear_subject_subgroups(self, telegram_id: int) -> None:
+        async with self.sessions() as session:
+            await session.execute(
+                delete(UserSubjectSubgroupRow).where(
+                    UserSubjectSubgroupRow.telegram_id == telegram_id
+                )
             )
             await session.commit()

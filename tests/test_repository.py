@@ -35,6 +35,18 @@ async def test_subgroup_is_saved_and_can_be_changed(db):
     assert user is not None and user.subgroup == 6
 
 
+async def test_subject_specific_subgroups_can_be_set_reset_and_cleared(db):
+    repo = UserRepository(db.sessions)
+    await repo.save(10, 4, "G1", 1)
+    await repo.set_subject_subgroup(10, "Базы данных", 2)
+    assert await repo.subject_subgroups(10) == {"Базы данных": 2}
+    await repo.set_subject_subgroup(10, "Базы данных", None)
+    assert await repo.subject_subgroups(10) == {}
+    await repo.set_subject_subgroup(10, "Алгебра", 2)
+    await repo.clear_subject_subgroups(10)
+    assert await repo.subject_subgroups(10) == {}
+
+
 async def test_subscribers_are_filtered(db):
     repo = UserRepository(db.sessions)
     await repo.save(1, 1, "G1")
