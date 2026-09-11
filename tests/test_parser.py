@@ -112,6 +112,27 @@ def test_splits_subgroup_lessons_and_removes_subgroup_from_location():
     ]
 
 
+def test_extracts_subgroup_from_online_lesson():
+    entries = parse_lesson_entries(
+        "Базы данных\nБелов И.И. (онлайн[0], 2)\nhttps://example.test/lesson"
+    )
+    assert len(entries) == 1
+    assert entries[0][2] == "онлайн"
+    assert entries[0][3] is True
+    assert entries[0][-1] == 2
+
+
+def test_splits_entry_with_single_initial_teacher():
+    entries = parse_lesson_entries(
+        "Немецкий язык\nМощанская Т.В. (307[2], 1)\n"
+        "Китайский язык\nЛи Ц.. (онлайн[0], 2)"
+    )
+    assert len(entries) == 2
+    assert entries[1][0] == "Китайский язык"
+    assert entries[1][1] == "Ли Ц."
+    assert entries[1][-1] == 2
+
+
 def test_detects_groups_and_normal_cell():
     schedule = ExcelScheduleParser().parse(workbook_bytes())
     assert schedule.courses == {4: ("РИС-23-1", "РИС-23-2")}

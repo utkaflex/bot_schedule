@@ -13,7 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from app.schedule.models import Lesson, Schedule
 
-PARSER_VERSION = 3
+PARSER_VERSION = 4
 
 DATE_RE = re.compile(r"(?P<d>\d{1,2})\.(?P<m>\d{1,2})\.(?P<y>\d{4})")
 PAIR_RE = re.compile(
@@ -23,7 +23,12 @@ PAIR_RE = re.compile(
 URL_RE = re.compile(r"https?://[^\s]+", re.I)
 LOCATION_RE = re.compile(r"\(([^()]*(?:онлайн|\d{2,4}\s*\[\d+\])[^()]*)\)\s*$", re.I)
 SUBGROUP_RE = re.compile(r",\s*(?P<number>\d+)\s*$")
-TEACHER_RE = re.compile(r"([А-ЯЁ][а-яё-]+(?:[ \t]+[А-ЯЁ][а-яё-]+)*[ \t]+[А-ЯЁ]\.[А-ЯЁ]\.)")
+SUBGROUP_IN_TEXT_RE = re.compile(
+    r"\((?:онлайн|\d{2,4})\s*\[\d+\]\s*,\s*(?P<number>\d+)\s*\)", re.I
+)
+TEACHER_RE = re.compile(
+    r"([А-ЯЁ][а-яё-]+(?:[ \t]+[А-ЯЁ][а-яё-]+)*[ \t]+[А-ЯЁ]\.(?:[А-ЯЁ]\.)?)"
+)
 NOTE_RE = re.compile(r"\(([А-ЯЁA-Z]{2,8})\)")
 LESSON_TYPES: tuple[tuple[re.Pattern[str], str], ...] = (
     (
@@ -164,11 +169,12 @@ def parse_lesson_entries(
         if first_teacher == 0 and previous_subject:
             chunk_text = f"{previous_subject}\n{chunk_text}"
         subject, teacher, location, online, url, notes, lesson_type = parse_lesson_text(chunk_text)
-        subgroup = None
+        subgroup_match = SUBGROUP_IN_TEXT_RE.search(chunk_text)
+        subgroup = int(subgroup_match["number"]) if subgroup_match else None
         if location:
-            subgroup_match = SUBGROUP_RE.search(location)
-            if subgroup_match:
-                subgroup = int(subgroup_match["number"])
+            location_subgroup_match = SUBGROUP_RE.search(location)
+            if location_subgroup_match:
+                subgroup = int(location_subgroup_match["number"])
                 location = SUBGROUP_RE.sub("", location).strip()
         previous_subject = subject
         entries.append((subject, teacher, location, online, url, notes, lesson_type, subgroup))
