@@ -205,6 +205,29 @@ async def test_calendar_applies_subject_specific_subgroup_override():
     assert "LOCATION:401[1]" not in content
 
 
+async def test_calendar_with_all_subgroups_keeps_numbered_lessons():
+    first = replace(sample_lesson(), subject="Первая", subgroup=1)
+    second = replace(sample_lesson(), subject="Вторая", subgroup=2)
+
+    class AllSubgroupsUsers(Users):
+        async def get(self, telegram_id):
+            return SimpleNamespace(
+                telegram_id=telegram_id, group_name="РИС-23-3", subgroup=None
+            )
+
+    service = CalendarService(
+        AllSubgroupsUsers(),
+        ScheduleService(Schedule({4: ("РИС-23-3",)}, (first, second))),
+        ZoneInfo("Asia/Yekaterinburg"),
+        None,
+    )
+    exported = await service.export_for_user(7)
+    assert exported is not None
+    content = exported[1].decode()
+    assert "Первая" in content
+    assert "Вторая" in content
+
+
 def test_real_schedule_ics_contains_all_ten_lessons():
     schedule = ExcelScheduleParser().parse("tests/fixtures/real_schedule.xlsx")
     lessons = schedule.for_group("РИС-23-3")

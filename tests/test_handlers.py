@@ -233,6 +233,27 @@ async def test_subject_can_override_default_subgroup(monkeypatch):
     assert users.overrides == {"Базы данных": 2}
 
 
+async def test_all_subgroups_mode_keeps_every_numbered_lesson(monkeypatch):
+    monkeypatch.setattr(handlers, "Message", FakeMessage)
+    today = datetime.now(ZoneInfo("Asia/Yekaterinburg")).date()
+    lessons = (
+        Lesson("G-1", today, 1, time(8), time(9), "Первая", subgroup=1),
+        Lesson("G-1", today, 2, time(9), time(10), "Вторая", subgroup=2),
+    )
+    user = SimpleNamespace(
+        telegram_id=7, course=1, group_name="G-1", subgroup=None, notifications_enabled=True
+    )
+    router = handlers.build_router(
+        Users(user),
+        ScheduleService(Schedule({1: ("G-1",)}, lessons)),
+        ZoneInfo("Asia/Yekaterinburg"),
+    )
+    message = FakeMessage()
+    await callbacks(router, "message")["today"](message)
+    assert "Первая" in message.answers[0][0]
+    assert "Вторая" in message.answers[0][0]
+
+
 async def test_master_program_is_placeholder(monkeypatch):
     monkeypatch.setattr(handlers, "Message", FakeMessage)
     router = handlers.build_router(

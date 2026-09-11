@@ -168,7 +168,8 @@ class CalendarService:
             for lesson in self.schedules.schedule.for_group(user.group_name)
             if lesson.subject not in hidden
             and (
-                lesson.subgroup is None
+                overrides.get(lesson.subject, subgroup) is None
+                or lesson.subgroup is None
                 or lesson.subgroup == overrides.get(lesson.subject, subgroup)
             )
         )
@@ -198,7 +199,8 @@ class CalendarService:
             for lesson in self.schedules.schedule.for_group(user.group_name)
             if lesson.subject not in hidden
             and (
-                lesson.subgroup is None
+                overrides.get(lesson.subject, subgroup) is None
+                or lesson.subgroup is None
                 or lesson.subgroup == overrides.get(lesson.subject, subgroup)
             )
         )

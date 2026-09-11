@@ -86,12 +86,12 @@ def build_router(
         user: object, lessons: tuple[Lesson, ...], overrides: dict[str, int]
     ) -> tuple[Lesson, ...]:
         default_subgroup = selected_subgroup(user)
-        return tuple(
-            lesson
-            for lesson in lessons
-            if lesson.subgroup is None
-            or lesson.subgroup == overrides.get(lesson.subject, default_subgroup)
-        )
+        visible = []
+        for lesson in lessons:
+            subgroup = overrides.get(lesson.subject, default_subgroup)
+            if subgroup is None or lesson.subgroup is None or lesson.subgroup == subgroup:
+                visible.append(lesson)
+        return tuple(visible)
 
     def subgroups_for_subject(group: str, subject: str) -> tuple[int, ...]:
         return tuple(
@@ -522,16 +522,15 @@ def build_router(
             await choose_education(message)
             return
         hidden = await users.hidden_subjects(user.telegram_id)
-        subgroup = selected_subgroup(user)
         overrides = await users.subject_subgroups(user.telegram_id)
-        lessons = tuple(
-            lesson
-            for lesson in schedules.for_week(user.group_name, monday)
-            if lesson.subject not in hidden
-            and (
-                lesson.subgroup is None
-                or lesson.subgroup == overrides.get(lesson.subject, subgroup)
-            )
+        lessons = visible_lessons(
+            user,
+            tuple(
+                lesson
+                for lesson in schedules.for_week(user.group_name, monday)
+                if lesson.subject not in hidden
+            ),
+            overrides,
         )
         if not lessons:
             await message.answer("На эту неделю занятий нет.", reply_markup=MAIN)
