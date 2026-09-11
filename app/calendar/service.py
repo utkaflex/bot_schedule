@@ -146,15 +146,7 @@ class CalendarService:
         self.base_url = base_url.rstrip("/") if base_url else None
 
     def _selected_subgroup(self, user: object) -> int | None:
-        subgroup = getattr(user, "subgroup", None)
-        available = {
-            lesson.subgroup
-            for lesson in self.schedules.schedule.for_group(getattr(user, "group_name", ""))
-            if lesson.subgroup is not None
-        }
-        if subgroup is not None and subgroup not in available and available <= {1, 2}:
-            return 1 if subgroup % 2 else 2
-        return subgroup
+        return getattr(user, "subgroup", None)
 
     async def export_for_user(self, telegram_id: int) -> tuple[str, bytes] | None:
         user = await self.users.get(telegram_id)

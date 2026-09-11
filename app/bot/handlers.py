@@ -76,11 +76,7 @@ def build_router(
         )
 
     def selected_subgroup(user: object) -> int | None:
-        subgroup = getattr(user, "subgroup", None)
-        available = subgroups_for_group(getattr(user, "group_name", ""))
-        if subgroup is not None and subgroup not in available and set(available) <= {1, 2}:
-            return 1 if subgroup % 2 else 2
-        return subgroup
+        return getattr(user, "subgroup", None)
 
     def visible_lessons(
         user: object, lessons: tuple[Lesson, ...], overrides: dict[str, int]

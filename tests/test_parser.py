@@ -1,16 +1,13 @@
-from dataclasses import replace
 from datetime import date, time
 from io import BytesIO
 
 import pytest
 from openpyxl import Workbook
 
-from app.schedule.models import Lesson
 from app.schedule.parser import (
     ExcelScheduleParser,
     ScheduleParseError,
     merged_value,
-    normalize_subgroups,
     parse_date,
     parse_lesson_entries,
     parse_lesson_text,
@@ -136,21 +133,11 @@ def test_splits_entry_with_single_initial_teacher():
     assert entries[1][-1] == 2
 
 
-def test_normalizes_global_and_local_subgroup_numbers_within_group():
-    base = Lesson("РИС-25-2", date(2026, 9, 7), 1, time(8), time(9), "A")
-    lessons = (
-        replace(base, subject="global first", subgroup=3),
-        replace(base, subject="global second", subgroup=4),
-        replace(base, subject="local first", subgroup=1),
-        replace(base, subject="local second", subgroup=2),
+def test_keeps_literal_subgroup_number_from_schedule():
+    entries = parse_lesson_entries(
+        "Базы данных\nКоробков И.И. (онлайн[0], 7)\nhttps://example.test"
     )
-    assert [lesson.subgroup for lesson in normalize_subgroups(lessons)] == [1, 2, 1, 2]
-
-
-def test_keeps_real_third_subgroup_without_global_numbering_evidence():
-    base = Lesson("ИЯ-25-2", date(2026, 9, 7), 1, time(8), time(9), "A")
-    lessons = tuple(replace(base, subject=str(number), subgroup=number) for number in (1, 2, 3))
-    assert [lesson.subgroup for lesson in normalize_subgroups(lessons)] == [1, 2, 3]
+    assert entries[0][-1] == 7
 
 
 def test_detects_groups_and_normal_cell():
