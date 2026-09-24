@@ -175,10 +175,10 @@ def build_router(
             if subgroups_for_subject(user.group_name, subject)
         )
         overrides = await users.subject_subgroups(telegram_id)
+        default_subgroup = selected_subgroup(user)
         pages = max(
             1,
-            (len(subjects) + SUBGROUP_SUBJECTS_PER_PAGE - 1)
-            // SUBGROUP_SUBJECTS_PER_PAGE,
+            (len(subjects) + SUBGROUP_SUBJECTS_PER_PAGE - 1) // SUBGROUP_SUBJECTS_PER_PAGE,
         )
         page = min(max(page, 0), pages - 1)
         start = page * SUBGROUP_SUBJECTS_PER_PAGE
@@ -186,6 +186,11 @@ def build_router(
         for subject in subjects[start : start + SUBGROUP_SUBJECTS_PER_PAGE]:
             selected = overrides.get(subject)
             state = f"подгруппа {selected}" if selected is not None else "основная"
+            effective = overrides.get(subject, default_subgroup)
+            available = subgroups_for_subject(user.group_name, subject)
+            if effective is not None and effective not in available:
+                numbers = "/".join(map(str, available))
+                state = f"нет №{effective} · в расписании {numbers}"
             rows.append(
                 [
                     InlineKeyboardButton(
@@ -212,7 +217,10 @@ def build_router(
         await message.edit_text(
             "<b>Подгруппы по предметам</b>\n\n"
             "Здесь можно выбрать другую подгруппу только для отдельных дисциплин. "
-            "Остальные используют основную настройку из профиля.\n\n"
+            "Остальные используют основную настройку из профиля. "
+            "Номера взяты из расписания и могут отличаться по предметам. "
+            "«Нет №» означает, что занятия с этим номером сейчас не найдены; "
+            "общие пары показываются при любом выборе.\n\n"
             f"Страница {page + 1} из {pages}.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
         )
@@ -264,6 +272,22 @@ def build_router(
             f"<b>Профиль</b>\n\nГруппа: {user.group_name}\n"
             f"Подгруппа: {subgroup_text}\nУведомления: {state}"
         )
+        overrides = await users.subject_subgroups(telegram_id)
+        hidden = await users.hidden_subjects(telegram_id)
+        unmatched = []
+        for subject in subject_catalog(user.group_name):
+            available = subgroups_for_subject(user.group_name, subject)
+            effective = overrides.get(subject, subgroup)
+            if subject not in hidden and available and effective is not None:
+                if effective not in available:
+                    unmatched.append(subject)
+        if unmatched:
+            text += (
+                "\n\nПредметов, для которых в загруженном расписании "
+                f"нет выбранного номера подгруппы: {len(unmatched)}. "
+                "Проверь «Подгруппы по предметам»: "
+                "для них могут использоваться другие номера. Общие пары показываются."
+            )
         if edit:
             await message.edit_text(text, reply_markup=keyboard)
         else:
@@ -433,7 +457,9 @@ def build_router(
             ]
             items.append(("Показывать все", f"subgroup:{course_value}:{group_name}:all"))
             await callback.message.edit_text(
-                f"Группа {group_name}. Выбери свою подгруппу:",
+                f"Группа {group_name}. Выбери свою подгруппу.\n"
+                "Номера указаны как в расписании. Если по отдельному предмету "
+                "у тебя другая подгруппа, выбери её в профиле → «Подгруппы по предметам».",
                 reply_markup=inline(items),
             )
             await callback.answer()
@@ -478,7 +504,11 @@ def build_router(
             ]
             items.append(("Показывать все", f"subgroup:{user.course}:{user.group_name}:all"))
             items.append(("‹ Назад", "settings:back"))
-            await callback.message.edit_text("Выбери подгруппу:", reply_markup=inline(items))
+            await callback.message.edit_text(
+                "Выбери подгруппу. Номера указаны как в расписании.\n"
+                "Для отдельных дисциплин используй «Подгруппы по предметам» в профиле.",
+                reply_markup=inline(items),
+            )
         await callback.answer()
 
     async def show(message: Message, offset: int | None) -> None:
@@ -634,11 +664,7 @@ def build_router(
             await callback.answer()
             return
         subject = next(
-            (
-                item
-                for item in subject_catalog(user.group_name)
-                if subject_key(item) == key
-            ),
+            (item for item in subject_catalog(user.group_name) if subject_key(item) == key),
             None,
         )
         if subject is None:
@@ -671,11 +697,7 @@ def build_router(
         user = await users.get(callback.from_user.id)
         if user is not None:
             subject = next(
-                (
-                    item
-                    for item in subject_catalog(user.group_name)
-                    if subject_key(item) == key
-                ),
+                (item for item in subject_catalog(user.group_name) if subject_key(item) == key),
                 None,
             )
             if subject is not None:

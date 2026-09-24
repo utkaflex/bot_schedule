@@ -2,8 +2,11 @@ from datetime import datetime, time, timedelta
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+import pytest
+
 import app.bot.handlers as handlers
 from app.schedule.models import Lesson, Schedule
+from app.schedule.parser import ExcelScheduleParser
 from app.schedule.service import ScheduleService
 
 
@@ -252,6 +255,83 @@ async def test_all_subgroups_mode_keeps_every_numbered_lesson(monkeypatch):
     await callbacks(router, "message")["today"](message)
     assert "Первая" in message.answers[0][0]
     assert "Вторая" in message.answers[0][0]
+
+
+async def test_subject_number_mismatch_is_explained_and_override_resolves_it(monkeypatch):
+    monkeypatch.setattr(handlers, "Message", FakeMessage)
+    today = datetime.now(ZoneInfo("Asia/Yekaterinburg")).date()
+    lessons = (
+        Lesson("РИС-24-2", today, 1, time(8), time(9), "Общая пара"),
+        Lesson("РИС-24-2", today, 2, time(9), time(10), "Машинное обучение", subgroup=3),
+        Lesson("РИС-24-2", today, 2, time(9), time(10), "Машинное обучение", subgroup=4),
+        Lesson("РИС-24-2", today, 3, time(10), time(11), "Другой предмет", subgroup=1),
+        Lesson("РИС-24-2", today, 3, time(10), time(11), "Другой предмет", subgroup=2),
+    )
+    user = SimpleNamespace(
+        telegram_id=7, course=3, group_name="РИС-24-2", subgroup=3, notifications_enabled=True
+    )
+    users = Users(user)
+    router = handlers.build_router(
+        users,
+        ScheduleService(Schedule({3: ("РИС-24-2",)}, lessons)),
+        ZoneInfo("Asia/Yekaterinburg"),
+    )
+    callback_handlers = callbacks(router, "callback_query")
+    menu = FakeCallback("settings:subject_subgroups")
+    await callback_handlers["subject_subgroups"](menu)
+    buttons = menu.message.edits[0][1].inline_keyboard
+    assert "нет №3 · в расписании 1/2" in buttons[0][0].text
+    assert "нет №" not in buttons[1][0].text
+    profile = FakeMessage()
+    await callbacks(router, "message")["settings"](profile)
+    assert "нет выбранного номера подгруппы: 1" in profile.answers[0][0]
+    users.overrides["Другой предмет"] = 2
+    profile = FakeMessage()
+    await callbacks(router, "message")["settings"](profile)
+    assert "нет выбранного номера" not in profile.answers[0][0]
+    message = FakeMessage()
+    await callbacks(router, "message")["today"](message)
+    assert "Общая пара" in message.answers[0][0]
+    assert "подгруппа 3" in message.answers[0][0]
+    assert "подгруппа 2" in message.answers[0][0]
+    assert "подгруппа 1" not in message.answers[0][0]
+    assert "подгруппа 4" not in message.answers[0][0]
+
+
+@pytest.mark.parametrize("subgroup,expected_pairs", [(1, 4), (2, 3), (None, 4)])
+async def test_september_22_common_seminar_survives_subgroup_filter(
+    monkeypatch, subgroup, expected_pairs
+):
+    """Exercise the real workbook through the same day handler as the screenshots."""
+    monkeypatch.setattr(handlers, "Message", FakeMessage)
+
+    class ScheduleDate(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 9, 22, 12, tzinfo=tz)
+
+    monkeypatch.setattr(handlers, "datetime", ScheduleDate)
+    schedule = ExcelScheduleParser().parse("tests/fixtures/schedule_2026_09_21.xlsx")
+    user = SimpleNamespace(
+        telegram_id=7,
+        course=1,
+        group_name="РИС-26-1",
+        subgroup=subgroup,
+        notifications_enabled=True,
+    )
+    users = Users(user)
+    # Even a subject-specific choice must never hide a common lesson.
+    users.overrides["Профориентационный"] = 2
+    router = handlers.build_router(users, ScheduleService(schedule), ZoneInfo("Asia/Yekaterinburg"))
+    message = FakeMessage()
+    await callbacks(router, "message")["today"](message)
+    text = message.answers[0][0]
+    assert "Плаксин М.А." in text
+    assert "15:00" in text
+    assert "Алгебра" in text
+    assert "Основы российской государственности" in text
+    assert ("Викентьева О.Л." in text) == (subgroup != 2)
+    assert f"{expected_pairs} пары" in text
 
 
 async def test_master_program_is_placeholder(monkeypatch):
