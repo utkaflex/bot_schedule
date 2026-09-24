@@ -1,5 +1,9 @@
 from datetime import date, time
 
+from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.methods import SendMessage
+
+import app.notifications.service as notification_module
 from app.notifications.service import NotificationService
 from app.schedule.models import Lesson, LessonChange
 from app.storage.database import Database
@@ -48,21 +52,67 @@ async def test_generic_group_update_reaches_all_enabled_subscribers(tmp_path):
     await db.close()
 
 
-async def test_new_week_notification_reaches_subscribers(tmp_path):
+async def test_new_week_notification_reaches_everyone_even_with_notifications_disabled(tmp_path):
     db = Database(f"sqlite+aiosqlite:///{tmp_path / 'week.db'}")
     await db.create_schema()
     users = UserRepository(db.sessions)
     await users.save(1, 1, "РИС-25-1")
+    await users.save(2, 3, "Другая группа", 4)
+    await users.toggle_notifications(2)
+    await users.toggle_hidden_subject(2, "Предмет")
     sent = []
 
     async def send(user, text):
         sent.append((user, text))
 
-    await NotificationService(users, send).notify_new_week(
-        3, date(2026, 9, 14), ("РИС-25-1",)
-    )
+    await NotificationService(users, send).notify_new_week(3, date(2026, 9, 14))
 
-    assert [item[0] for item in sent] == [1]
+    assert [item[0] for item in sent] == [1, 2]
     assert "неделю №3" in sent[0][1]
     assert "14.09–20.09.2026" in sent[0][1]
+    await db.close()
+
+
+async def test_blocked_user_does_not_interrupt_new_week_broadcast(tmp_path):
+    db = Database(f"sqlite+aiosqlite:///{tmp_path / 'blocked.db'}")
+    await db.create_schema()
+    users = UserRepository(db.sessions)
+    for telegram_id in (1, 2, 3):
+        await users.save(telegram_id, 1, "G")
+    sent = []
+
+    async def send(user, text):
+        if user == 2:
+            raise TelegramForbiddenError(
+                method=SendMessage(chat_id=user, text=text), message="blocked"
+            )
+        sent.append(user)
+
+    await NotificationService(users, send).notify_new_week(5, date(2026, 9, 28))
+    assert sent == [1, 3]
+    await db.close()
+
+
+async def test_rate_limit_retries_same_recipient_before_continuing(tmp_path, monkeypatch):
+    db = Database(f"sqlite+aiosqlite:///{tmp_path / 'retry.db'}")
+    await db.create_schema()
+    users = UserRepository(db.sessions)
+    await users.save(1, 1, "G")
+    await users.save(2, 1, "G")
+    attempts, sleeps = [], []
+
+    async def sleep(delay):
+        sleeps.append(delay)
+
+    async def send(user, text):
+        attempts.append(user)
+        if len(attempts) == 1:
+            raise TelegramRetryAfter(
+                method=SendMessage(chat_id=user, text=text), message="limit", retry_after=2
+            )
+
+    monkeypatch.setattr(notification_module.asyncio, "sleep", sleep)
+    await NotificationService(users, send).notify_new_week(5, date(2026, 9, 28))
+    assert attempts == [1, 1, 2]
+    assert sleeps == [2]
     await db.close()

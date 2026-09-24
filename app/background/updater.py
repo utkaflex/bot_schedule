@@ -101,15 +101,10 @@ class ScheduleUpdater:
                 )
                 if changed_groups:
                     await self.notifications.notify_groups(changed_groups)
-                for item, schedule in zip(items, parsed, strict=True):
+                for item in items:
                     if item.start_date not in new_week_starts:
                         continue
-                    week_groups = tuple(
-                        sorted({group for groups in schedule.courses.values() for group in groups})
-                    )
-                    await self.notifications.notify_new_week(
-                        item.week_number, item.start_date, week_groups
-                    )
+                    await self.notifications.notify_new_week(item.week_number, item.start_date)
             log.info(
                 "Schedule update processed: files=%s; hash=%s; lessons=%s; "
                 "changed_groups=%s; new_weeks=%s",
