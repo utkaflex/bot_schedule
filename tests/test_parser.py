@@ -223,3 +223,21 @@ def test_real_schedule_all_ten_lessons():
         for x in lessons
     ]
     assert actual == expected
+
+
+def test_ris_26_1_october_13_keeps_both_plaksin_lessons_for_first_subgroup():
+    schedule = ExcelScheduleParser().parse("tests/fixtures/schedule_2026_10_12.xlsx")
+    lessons = [
+        lesson
+        for lesson in schedule.for_group("РИС-26-1")
+        if lesson.date == date(2026, 10, 13)
+        and lesson.subgroup in (None, 1)
+    ]
+    assert [lesson.pair_number for lesson in lessons] == [3, 4, 5, 6]
+    assert [lesson.teacher for lesson in lessons] == [
+        "Плаксин М.А.",
+        "Плаксин М.А.",
+        "Глушков А.В.",
+        "Глушков А.В.",
+    ]
+    assert all(lesson.subgroup is None for lesson in lessons)
