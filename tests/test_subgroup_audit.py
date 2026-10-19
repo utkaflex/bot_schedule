@@ -17,7 +17,7 @@ from app.schedule.parser import ExcelScheduleParser
 from app.schedule.service import ScheduleService
 
 FILES = tuple(sorted(Path("tests/fixtures").glob("*.xlsx")))
-ROOM = re.compile(r"\((онлайн|\d+)\s*\[(\d+)\](?:\s*,\s*(\d+))?\)", re.I)
+ROOM = re.compile(r"\((онлайн|SmartLMS|ведомости|\d+)\s*\[(\d+)\](?:\s*,\s*(\d+))?\)", re.I)
 
 
 @pytest.mark.parametrize("path", FILES, ids=lambda p: p.stem)

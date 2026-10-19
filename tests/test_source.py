@@ -40,6 +40,24 @@ def test_ignores_unrelated_xlsx():
     assert parse_schedule_file(item("2 курс факультатив.xlsx")) is None
 
 
+def test_session_is_selected_as_next_week_and_becomes_current():
+    weekly = parse_schedule_file(
+        item("Расписание занятий (неделя №8 c 19.10.26) с изм. 19.10.26.xlsx")
+    )
+    session_item = item("СЕССИЯ (неделя №9 c 26.10.26).xlsx")
+    session_item["modified"] = "2026-10-19T10:00:00+00:00"
+    session = parse_schedule_file(session_item)
+    revised = parse_schedule_file(item("СЕССИЯ (неделя №9 с 26.10.26) с изм. 25.10.26.xlsx"))
+    assert weekly is not None and session is not None and revised is not None
+    assert session.week_number == 9
+    assert session.start_date == date(2026, 10, 26)
+    assert select_current_and_next([weekly, session, revised], date(2026, 10, 19)) == (
+        weekly,
+        revised,
+    )
+    assert select_current_and_next([weekly, session, revised], date(2026, 10, 26)) == (revised,)
+
+
 def files():
     return [
         parse_schedule_file(item(name))

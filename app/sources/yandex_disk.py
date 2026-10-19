@@ -12,7 +12,7 @@ import httpx
 log = logging.getLogger(__name__)
 API_URL = "https://cloud-api.yandex.net/v1/disk/public/resources"
 FILE_RE = re.compile(
-    r"^Расписание\s+занятий.*?неделя\s*№\s*(?P<week>\d+).*?[cс]\s*"
+    r"^(?:Расписание\s+занятий|Сессия).*?неделя\s*№\s*(?P<week>\d+).*?[cс]\s*"
     r"(?P<start>\d{1,2}\.\d{1,2}\.\d{2,4})\s*\)"
     r"(?:\s*[cс]\s+изм\.?\s*(?P<modified>\d{1,2}\.\d{1,2}\.\d{2,4}))?"
     r"\s*\.xlsx$",
@@ -62,9 +62,7 @@ def parse_schedule_file(item: dict[str, Any]) -> ScheduleFile | None:
         name=name,
         week_number=int(match["week"]),
         start_date=start_date,
-        modified_date=(
-            _short_date(match["modified"]) if match["modified"] else fallback_modified
-        ),
+        modified_date=(_short_date(match["modified"]) if match["modified"] else fallback_modified),
         download_url=str(item.get("file", "")),
         api_hash=item.get("sha256"),
     )

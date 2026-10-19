@@ -13,7 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 from app.schedule.models import Lesson, Schedule
 
-PARSER_VERSION = 6
+PARSER_VERSION = 7
 
 DATE_RE = re.compile(r"(?P<d>\d{1,2})\.(?P<m>\d{1,2})\.(?P<y>\d{4})")
 PAIR_RE = re.compile(
@@ -21,14 +21,15 @@ PAIR_RE = re.compile(
     re.S,
 )
 URL_RE = re.compile(r"https?://[^\s]+", re.I)
-LOCATION_RE = re.compile(r"\(([^()]*(?:онлайн|\d{2,4}\s*\[\d+\])[^()]*)\)\s*$", re.I)
+LOCAL_TIME_RE = re.compile(
+    r"по\s+Перми\s+в\s+(?P<sh>\d{1,2})[.:](?P<sm>\d{2})\s*[-–—]\s*"
+    r"(?P<eh>\d{1,2})[.:](?P<em>\d{2})",
+    re.I,
+)
+LOCATION_RE = re.compile(r"\(([^()]*(?:онлайн|SmartLMS|ведомости|\d{2,4})\s*\[\d+\][^()]*)\)", re.I)
 SUBGROUP_RE = re.compile(r",\s*(?P<number>\d+)\s*$")
-SUBGROUP_IN_TEXT_RE = re.compile(
-    r"\((?:онлайн|\d{2,4})\s*\[\d+\]\s*,\s*(?P<number>\d+)\s*\)", re.I
-)
-TEACHER_RE = re.compile(
-    r"([А-ЯЁ][а-яё-]+(?:[ \t]+[А-ЯЁ][а-яё-]+)*[ \t]+[А-ЯЁ]\.(?:[А-ЯЁ]\.)?)"
-)
+SUBGROUP_IN_TEXT_RE = re.compile(r"\((?:онлайн|\d{2,4})\s*\[\d+\]\s*,\s*(?P<number>\d+)\s*\)", re.I)
+TEACHER_RE = re.compile(r"([А-ЯЁ][а-яё-]+(?:[ \t]+[А-ЯЁ][а-яё-]+)*[ \t]+[А-ЯЁ]\.(?:[А-ЯЁ]\.)?)")
 NOTE_RE = re.compile(r"\(([А-ЯЁA-Z]{2,8})\)")
 LESSON_TYPES: tuple[tuple[re.Pattern[str], str], ...] = (
     (
@@ -41,7 +42,7 @@ LESSON_TYPES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\((?:семинар|сем\.?|с)\)|\bсеминар\w*\b", re.I), "семинар"),
     (re.compile(r"\bпракт(?:ика|ическое|\.)\s*(?:занятие|курс)?", re.I), "практика"),
     (re.compile(r"\bлаб(?:ораторная|\.)\s*(?:работа)?", re.I), "лабораторная"),
-    (re.compile(r"\bэкзамен\w*\b", re.I), "экзамен"),
+    (re.compile(r"\bэкзамен\w*\b|ЭКЗАМЕН\b", re.I), "экзамен"),
     (re.compile(r"\bзач[её]т\w*\b", re.I), "зачёт"),
     (re.compile(r"\bконсультац\w*\b", re.I), "консультация"),
 )
@@ -105,9 +106,13 @@ def parse_lesson_text(
     lesson_types = dict.fromkeys(
         normalized for _, normalized in sorted(found_types, key=lambda item: item[0])
     )
+    if "экзамен" in lesson_types:
+        lesson_types = {"экзамен": None}
     lesson_type = " / ".join(lesson_types) or None
     subject_parts: list[str] = []
     for line in lines:
+        if LOCAL_TIME_RE.search(line):
+            continue
         if teacher and teacher in line:
             prefix = line[: line.index(teacher)].strip()
             prefix = NOTE_RE.sub("", prefix).strip()
@@ -119,7 +124,8 @@ def parse_lesson_text(
         subject_parts.append(line)
     subject = " ".join(subject_parts).strip()
     subject = NOTE_RE.sub("", subject).strip()
-    if lesson_type:
+    subject = re.sub(r"экзамен\s*$", "", subject, flags=re.I).strip(" .—-")
+    if lesson_type and lesson_type != "экзамен":
         subject = re.sub(
             r"\s*\((?:лекц(?:ия|ии)?|л|семинар|сем\.?|с)\)\s*$", "", subject, flags=re.I
         )
@@ -205,6 +211,14 @@ class ExcelScheduleParser:
                     raw = merged_value(sheet, row, column)
                     if not isinstance(raw, str) or not raw.strip():
                         continue
+                    lesson_pair = pair
+                    local_time = LOCAL_TIME_RE.search(raw)
+                    if local_time:
+                        lesson_pair = (
+                            pair[0],
+                            time(int(local_time["sh"]), int(local_time["sm"])),
+                            time(int(local_time["eh"]), int(local_time["em"])),
+                        )
                     for entry in parse_lesson_entries(raw):
                         (
                             subject,
@@ -220,7 +234,7 @@ class ExcelScheduleParser:
                             Lesson(
                                 group,
                                 current_date,
-                                *pair,
+                                *lesson_pair,
                                 subject,
                                 teacher,
                                 location,

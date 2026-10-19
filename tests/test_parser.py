@@ -124,8 +124,7 @@ def test_extracts_subgroup_from_online_lesson():
 
 def test_splits_entry_with_single_initial_teacher():
     entries = parse_lesson_entries(
-        "Немецкий язык\nМощанская Т.В. (307[2], 1)\n"
-        "Китайский язык\nЛи Ц.. (онлайн[0], 2)"
+        "Немецкий язык\nМощанская Т.В. (307[2], 1)\nКитайский язык\nЛи Ц.. (онлайн[0], 2)"
     )
     assert len(entries) == 2
     assert entries[1][0] == "Китайский язык"
@@ -241,3 +240,30 @@ def test_ris_26_1_october_13_keeps_both_plaksin_lessons_for_first_subgroup():
         "Глушков А.В.",
     ]
     assert all(lesson.subgroup is None for lesson in lessons)
+
+
+def test_real_session_exam_fields_and_explicit_perm_times():
+    schedule = ExcelScheduleParser().parse("tests/fixtures/session_2026_10_26.xlsx")
+    assert len(schedule.lessons) == 208
+    assert sum(map(len, schedule.courses.values())) == 57
+    exam = next(
+        lesson for lesson in schedule.for_group("РИС-26-1") if lesson.date == date(2026, 10, 27)
+    )
+    assert exam.subject == "Основы российской государственности"
+    assert exam.lesson_type == "экзамен"
+    assert (exam.start_time, exam.end_time) == (time(19), time(20))
+    assert exam.location == "SmartLMS[0]"
+    assert exam.url == "https://edu.hse.ru/course/view.php?id=295604"
+    earlier = next(
+        lesson for lesson in schedule.for_group("МПБЭ-26-1") if lesson.date == date(2026, 10, 27)
+    )
+    assert (earlier.start_time, earlier.end_time) == (time(17, 30), time(18, 30))
+    project = next(
+        lesson for lesson in schedule.for_group("Ю-25-2") if lesson.date == date(2026, 10, 26)
+    )
+    assert project.subject == "Проектный семинар"
+    assert project.lesson_type == "экзамен"
+    assert project.location == "ведомости[0]"
+    joined = schedule.for_group("Ю-22-1")[0]
+    assert joined.subject == "Медиация и переговорный процесс"
+    assert joined.lesson_type == "экзамен"

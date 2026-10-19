@@ -1,11 +1,15 @@
+import asyncio
 import logging
 from dataclasses import replace
 from datetime import date, time
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.background.updater import ScheduleUpdater
 from app.schedule.models import Lesson, Schedule
+from app.schedule.parser import ExcelScheduleParser
 from app.schedule.repository import ScheduleRepository
+from app.schedule.service import ScheduleService
 from app.sources.yandex_disk import ScheduleFile
 from app.storage.database import Database
 
@@ -60,6 +64,46 @@ class Notifications:
 
     async def notify_new_week(self, week, start):
         self.calls.append((week, start))
+
+
+async def test_real_session_is_loaded_announced_once_and_available_by_week():
+    content = await asyncio.to_thread(Path("tests/fixtures/session_2026_10_26.xlsx").read_bytes)
+    old = Schedule(
+        {1: ("РИС-26-1",)},
+        (Lesson("РИС-26-1", date(2026, 10, 19), 3, time(11, 30), time(12, 50), "Предмет"),),
+    )
+    repo, notifications = Repo(old), Notifications()
+    schedules = ScheduleService(old)
+
+    class SessionSource:
+        async def current_and_next(self, today):
+            return (
+                ScheduleFile(
+                    "СЕССИЯ (неделя №9 c 26.10.26).xlsx",
+                    9,
+                    date(2026, 10, 26),
+                    date(2026, 10, 19),
+                    "u",
+                ),
+            )
+
+        async def download(self, item):
+            return content
+
+    updater = ScheduleUpdater(
+        SessionSource(),
+        ExcelScheduleParser(),
+        repo,
+        schedules,
+        notifications,
+        ZoneInfo("Asia/Yekaterinburg"),
+    )
+    assert await updater.check() is True
+    assert notifications.calls == [(9, date(2026, 10, 26))]
+    assert schedules.available_weeks("РИС-26-1", date(2026, 10, 19)) == (date(2026, 10, 26),)
+    assert schedules.for_week("РИС-26-1", date(2026, 10, 26))
+    assert await updater.check() is False
+    assert notifications.calls == [(9, date(2026, 10, 26))]
 
 
 async def test_baseline_has_no_notifications_and_duplicate_is_idempotent():
