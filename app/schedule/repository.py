@@ -14,6 +14,7 @@ def schedule_to_json(schedule: Schedule) -> str:
     return json.dumps(
         {
             "courses": {str(k): list(v) for k, v in schedule.courses.items()},
+            "session_weeks": [day.isoformat() for day in schedule.session_weeks],
             "lessons": [
                 {
                     "group": x.group,
@@ -59,6 +60,7 @@ def schedule_from_json(value: str) -> Schedule:
             )
             for x in data["lessons"]
         ),
+        tuple(date.fromisoformat(day) for day in data.get("session_weeks", [])),
     )
 
 

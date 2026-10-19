@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -40,7 +41,7 @@ class ScheduleUpdater:
             items = await self.source.current_and_next(today)
             contents = [await self.source.download(item) for item in items]
             digest = hashlib.sha256()
-            digest.update(f"parser:{PARSER_VERSION}\0".encode())
+            digest.update(f"parser:{PARSER_VERSION};session-labels:1\0".encode())
             for item, content in zip(items, contents, strict=True):
                 digest.update(item.name.encode())
                 digest.update(b"\0")
@@ -55,7 +56,13 @@ class ScheduleUpdater:
                 )
                 return False
             old = await self.repository.latest()
-            parsed = tuple(self.parser.parse(content) for content in contents)
+            parsed = tuple(
+                replace(
+                    self.parser.parse(content),
+                    session_weeks=(_lesson_week(item.start_date),) if item.is_session else (),
+                )
+                for item, content in zip(items, contents, strict=True)
+            )
             new = merge_schedules(parsed)
             current = items[0]
             await self.repository.save(
@@ -104,7 +111,10 @@ class ScheduleUpdater:
                 for item in items:
                     if item.start_date not in new_week_starts:
                         continue
-                    await self.notifications.notify_new_week(item.week_number, item.start_date)
+                    if item.is_session:
+                        await self.notifications.notify_new_session(item.start_date)
+                    else:
+                        await self.notifications.notify_new_week(item.week_number, item.start_date)
             log.info(
                 "Schedule update processed: files=%s; hash=%s; lessons=%s; "
                 "changed_groups=%s; new_weeks=%s",

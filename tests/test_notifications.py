@@ -73,6 +73,27 @@ async def test_new_week_notification_reaches_everyone_even_with_notifications_di
     await db.close()
 
 
+async def test_session_announcement_has_distinct_text_and_reaches_everyone(tmp_path):
+    db = Database(f"sqlite+aiosqlite:///{tmp_path / 'session.db'}")
+    await db.create_schema()
+    users = UserRepository(db.sessions)
+    await users.save(1, 1, "G")
+    await users.save(2, 1, "G")
+    await users.toggle_notifications(2)
+    sent = []
+
+    async def send(user, text):
+        sent.append((user, text))
+
+    await NotificationService(users, send).notify_new_session(date(2026, 10, 26))
+    assert [user for user, _ in sent] == [1, 2]
+    assert "Появилось расписание сессии!" in sent[0][1]
+    assert "26.10–01.11.2026" in sent[0][1]
+    assert "выбери «Сессия»" in sent[0][1]
+    assert "новую неделю" not in sent[0][1]
+    await db.close()
+
+
 async def test_blocked_user_does_not_interrupt_new_week_broadcast(tmp_path):
     db = Database(f"sqlite+aiosqlite:///{tmp_path / 'blocked.db'}")
     await db.create_schema()

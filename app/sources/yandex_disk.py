@@ -41,6 +41,10 @@ class ScheduleFile:
     download_url: str
     api_hash: str | None = None
 
+    @property
+    def is_session(self) -> bool:
+        return self.name.casefold().startswith("сессия")
+
 
 def _short_date(value: str) -> date:
     day, month, year = map(int, value.split("."))

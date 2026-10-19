@@ -45,6 +45,16 @@ class NotificationService:
             for user in await self.users.subscribers(group):
                 await self._send(user.telegram_id, message)
 
+    async def notify_new_session(self, start_date: date) -> None:
+        end_date = start_date + timedelta(days=6)
+        message = (
+            "<b>🎓 Появилось расписание сессии!</b>\n\n"
+            f"{start_date:%d.%m}–{end_date:%d.%m.%Y}\n\n"
+            "Нажми «Неделя» и выбери «Сессия», чтобы посмотреть свои экзамены."
+        )
+        for user in await self.users.all_users():
+            await self._send(user.telegram_id, message)
+
     async def notify_new_week(self, week_number: int, start_date: date) -> None:
         end_date = start_date + timedelta(days=6)
         message = (

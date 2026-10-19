@@ -3,9 +3,15 @@ from datetime import date
 import pytest
 
 from app.schedule.models import Schedule
-from app.schedule.repository import ScheduleRepository
+from app.schedule.repository import ScheduleRepository, schedule_from_json, schedule_to_json
 from app.storage.database import Database
 from app.users.repository import UserRepository
+
+
+def test_session_labels_survive_serialization_and_older_versions_load():
+    schedule = Schedule({}, (), (date(2026, 10, 26),))
+    assert schedule_from_json(schedule_to_json(schedule)) == schedule
+    assert schedule_from_json('{"courses": {}, "lessons": []}').session_weeks == ()
 
 
 @pytest.fixture

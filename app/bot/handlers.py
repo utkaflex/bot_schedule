@@ -566,7 +566,8 @@ def build_router(
             days.setdefault(lesson.date, []).append(lesson)
         for index, (day, day_lessons) in enumerate(days.items()):
             await message.answer(
-                format_day(day, tuple(day_lessons)),
+                ("<b>🎓 Сессия</b>\n\n" if monday in schedules.schedule.session_weeks else "")
+                + format_day(day, tuple(day_lessons)),
                 reply_markup=MAIN if index == len(days) - 1 else None,
             )
 
@@ -597,6 +598,8 @@ def build_router(
         for monday in weeks:
             sunday = monday + timedelta(days=6)
             prefix = "Текущая" if monday == current_monday else "Следующая"
+            if monday in schedules.schedule.session_weeks:
+                prefix = "🎓 Сессия"
             items.append(
                 (
                     f"{prefix} · {monday:%d.%m}–{sunday:%d.%m}",

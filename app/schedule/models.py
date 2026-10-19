@@ -30,6 +30,7 @@ class Lesson:
 class Schedule:
     courses: dict[int, tuple[str, ...]]
     lessons: tuple[Lesson, ...]
+    session_weeks: tuple[Date, ...] = ()
 
     def for_group(self, group: str) -> tuple[Lesson, ...]:
         return tuple(x for x in self.lessons if x.group == group)
@@ -46,6 +47,7 @@ def merge_schedules(schedules: tuple[Schedule, ...]) -> Schedule:
     return Schedule(
         {course: tuple(groups) for course, groups in courses.items()},
         tuple(dict.fromkeys(lessons)),
+        tuple(sorted({week for schedule in schedules for week in schedule.session_weeks})),
     )
 
 

@@ -385,6 +385,24 @@ async def test_week_menu_shows_current_and_next_week(monkeypatch):
     assert "Следующая пара" in selected.message.answers[0][0]
 
 
+async def test_session_menu_and_selected_schedule_are_named_session(monkeypatch):
+    monkeypatch.setattr(handlers, "Message", FakeMessage)
+    timezone = ZoneInfo("Asia/Yekaterinburg")
+    today = datetime.now(timezone).date()
+    monday = today - timedelta(days=today.weekday()) + timedelta(days=7)
+    users = Users(SimpleNamespace(telegram_id=7, group_name="G", notifications_enabled=True))
+    schedule = Schedule(
+        {1: ("G",)}, (Lesson("G", monday, 1, time(8), time(9), "Экзамен"),), (monday,)
+    )
+    router = handlers.build_router(users, ScheduleService(schedule), timezone)
+    message = FakeMessage()
+    await callbacks(router, "message")["week"](message)
+    assert message.answers[0][1].inline_keyboard[0][0].text.startswith("🎓 Сессия · ")
+    selected = FakeCallback(f"week:{monday.isoformat()}")
+    await callbacks(router, "callback_query")["selected_week"](selected)
+    assert selected.message.answers[0][0].startswith("<b>🎓 Сессия</b>")
+
+
 async def test_calendar_subscription_flow(monkeypatch):
     monkeypatch.setattr(handlers, "Message", FakeMessage)
     users = Users(SimpleNamespace(group_name="РИС-23-3", notifications_enabled=True))

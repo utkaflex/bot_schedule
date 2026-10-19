@@ -65,6 +65,9 @@ class Notifications:
     async def notify_new_week(self, week, start):
         self.calls.append((week, start))
 
+    async def notify_new_session(self, start):
+        self.calls.append(("session", start))
+
 
 async def test_real_session_is_loaded_announced_once_and_available_by_week():
     content = await asyncio.to_thread(Path("tests/fixtures/session_2026_10_26.xlsx").read_bytes)
@@ -99,11 +102,12 @@ async def test_real_session_is_loaded_announced_once_and_available_by_week():
         ZoneInfo("Asia/Yekaterinburg"),
     )
     assert await updater.check() is True
-    assert notifications.calls == [(9, date(2026, 10, 26))]
+    assert notifications.calls == [("session", date(2026, 10, 26))]
+    assert schedules.schedule.session_weeks == (date(2026, 10, 26),)
     assert schedules.available_weeks("РИС-26-1", date(2026, 10, 19)) == (date(2026, 10, 26),)
     assert schedules.for_week("РИС-26-1", date(2026, 10, 26))
     assert await updater.check() is False
-    assert notifications.calls == [(9, date(2026, 10, 26))]
+    assert notifications.calls == [("session", date(2026, 10, 26))]
 
 
 async def test_baseline_has_no_notifications_and_duplicate_is_idempotent():
